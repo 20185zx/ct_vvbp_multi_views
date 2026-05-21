@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local data and generated experiment artifacts
+full_1mm/
+Results/
+Results_512_multirate/
+outputs/
+cached_direct_vvbp_results/
+
+# Model checkpoints and tensor caches
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+*.npy
+*.npz
+
+# Medical image data
+*.IMA
+*.ima
+*.dcm
+*.DCM
+
+# Logs and temporary files
+*.log
+tmp/
+temp/

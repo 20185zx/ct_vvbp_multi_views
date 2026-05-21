@@ -1,0 +1,35 @@
+{
+  "experiment_name": "patch_size_3_local_rank_center_integral_mlp_v120",
+  "model_names": [
+    "local rank center integral mlp, 10 epochs"
+  ],
+  "region_name": "center_256",
+  "region": [128, 384, 128, 384],
+  "dicom_folder": null,
+  "results_folder": null,
+  "save_dir": "outputs/patch_size_3_local_rank_center_integral_mlp_v120",
+  "cache_dir": "cached_direct_vvbp_results/cache_patch3_formal",
+  "experiment": {
+    "sparse_views": 120,
+    "image_size": 512,
+    "n_detec": 736,
+    "train_batch_size": 1,
+
+    "patch_size": 3,
+    "train_region": null,
+
+    "cache_num_batches": null,
+    "cache_pixels_per_slice": 8192,
+    "cached_batch_size": 8192,
+    "num_epochs": 10,
+
+    "lr": 0.001,
+    "weight_decay": 0.000001,
+    "grad_clip": null,
+    "chunk_size_eval": 8192,
+
+    "rebuild_train_cache": true,
+    "rebuild_eval_cache": true,
+    "seed": 42
+  }
+}

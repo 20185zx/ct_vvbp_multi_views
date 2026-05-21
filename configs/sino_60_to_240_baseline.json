@@ -1,0 +1,40 @@
+{
+  "experiment_name": "sino_60_to_240_baseline",
+  "model_names": [
+    "sino 60 to 240 residual fbp baseline"
+  ],
+  "region_name": "center_256",
+  "region": [128, 384, 128, 384],
+  "dicom_folder": null,
+  "results_folder": null,
+  "save_dir": "outputs/sino_60_to_240_baseline",
+  "cache_dir": "cached_direct_vvbp_results/cache_patch3_formal",
+  "experiment": {
+    "full_views": 240,
+    "sparse_views": 60,
+    "image_size": 512,
+    "n_detec": 736,
+    "d_detec": 1.3696,
+    "d_voxel": 0.6641,
+    "DSO": 595.0,
+    "DOD": 490.6,
+    "train_batch_size": 1,
+
+    "patch_size": 3,
+    "train_region": null,
+
+    "cache_num_batches": null,
+    "cache_pixels_per_slice": 8192,
+    "cached_batch_size": 8192,
+    "num_epochs": 10,
+
+    "lr": 0.001,
+    "weight_decay": 0.000001,
+    "grad_clip": null,
+    "chunk_size_eval": 8192,
+
+    "rebuild_train_cache": false,
+    "rebuild_eval_cache": false,
+    "seed": 42
+  }
+}

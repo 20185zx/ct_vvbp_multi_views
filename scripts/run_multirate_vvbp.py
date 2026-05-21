@@ -1,0 +1,380 @@
+"""
+Multi-rate VVBP experiment: train multiple models on mixed {9,18,36,72}-view data,
+then evaluate separately at each sparse view count.
+
+Usage:
+    python scripts/run_multirate_vvbp.py --config configs/multirate_selected_models.json
+    python scripts/run_multirate_vvbp.py  # uses defaults
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import time
+
+import numpy as np
+import pandas as pd
+import torch
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from src.utils.config import load_run_config, save_run_config
+from src.experiments.project_setup import prepare_multirate_context
+from src.evaluation.region_eval import evaluate_multirate
+from src.evaluation.fbp_baseline import compute_fbp_baselines
+from src.evaluation.visualization import plot_comparison_grid
+from src.models import build_model
+from src.training import estimate_multirate_stats, train_multirate_model
+
+
+def safe_model_name(name: str) -> str:
+    return name.replace(", ", "_").replace(" ", "_")
+
+
+def short_label(name: str) -> str:
+    """Strip _10_epochs suffix for display."""
+    return safe_model_name(name).replace("_10_epochs", "")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Multi-rate VVBP training + per-V evaluation."
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/multirate_selected_models.json",
+        help="Path to JSON config.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda",
+        help="Device: cuda or cpu.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Override num_epochs from config.",
+    )
+    parser.add_argument(
+        "--eval_only",
+        action="store_true",
+        help="Skip training, load checkpoint and evaluate.",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        type=str,
+        default=None,
+        help="Path to model checkpoint for eval_only.",
+    )
+    args = parser.parse_args()
+
+    run_cfg = load_run_config(args.config)
+    exp_cfg = run_cfg.experiment
+    if args.epochs is not None:
+        exp_cfg.num_epochs = args.epochs
+
+    exp_cfg.ensure_dirs()
+    save_run_config(run_cfg, os.path.join(exp_cfg.save_dir, "config_used.json"))
+
+    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+
+    # --- Multi-rate context (shared across models) ---
+    ctx = prepare_multirate_context(
+        dicom_folder=run_cfg.dicom_folder,
+        results_folder=run_cfg.results_folder,
+        save_dir=exp_cfg.save_dir,
+        cache_dir=exp_cfg.cache_dir,
+        cfg=exp_cfg,
+        device=device,
+        seed=exp_cfg.seed,
+    )
+
+    geo_dict = ctx["geo_dict"]
+    extractors = ctx["extractors"]
+    train_loader = ctx["train_loader"]
+    eval_dataset = ctx["eval_dataset"]
+    test_indices = ctx["test_indices"]
+    sparse_views = exp_cfg.sparse_views
+    region = tuple(run_cfg.region)
+
+    print("\nSparse views:", sparse_views)
+    print("Region:", region)
+
+    # --- Estimate normalization stats (once, shared) ---
+    print("\n" + "=" * 60)
+    print("Estimating normalization statistics ...")
+    print("=" * 60)
+    target_stats_raw, v_stats_raw = estimate_multirate_stats(
+        train_loader, extractors, exp_cfg, device,
+        num_stats_batches=4,
+    )
+    target_stats = {k: v.to(device) for k, v in target_stats_raw.items()}
+    v_stats = {
+        V: {k: v.to(device) for k, v in s.items()}
+        for V, s in v_stats_raw.items()
+    }
+
+    # --- Models to train/evaluate ---
+    model_names = run_cfg.model_names
+    if model_names is None or len(model_names) == 0:
+        model_names = ["local rank center integral mlp, 10 epochs"]
+
+    global_test_idx = int(test_indices[0])
+
+    # Per-model results storage
+    all_model_preds = {}    # model_name -> {V: ndarray}
+    all_model_metrics = {}  # model_name -> DataFrame
+
+    # Baselines (model-independent, captured from first evaluation)
+    baseline_preds = None
+    baseline_metrics_raw = None
+    target_arr = None
+
+    for model_name in model_names:
+        print(f"\n{'=' * 60}")
+        print(f"Model: {model_name}")
+        print(f"{'=' * 60}")
+
+        model = build_model(model_name)
+
+        if args.eval_only:
+            model = model.to(device)
+            ckpt_path = args.checkpoint or os.path.join(
+                exp_cfg.save_dir, f"{safe_model_name(model_name)}.pt"
+            )
+            print(f"Loading checkpoint: {ckpt_path}")
+            model.load_state_dict(torch.load(ckpt_path, map_location=device))
+        else:
+            num_epochs = exp_cfg.num_epochs
+            print(f"\nTraining on slices [0, {len(ctx['train_indices'])}), "
+                  f"test slice {global_test_idx}")
+            print(f"Epochs: {num_epochs}, LR: {exp_cfg.lr}")
+
+            t_train_start = time.time()
+            train_log = train_multirate_model(
+                model=model,
+                train_loader=train_loader,
+                extractors=extractors,
+                target_stats=target_stats,
+                v_stats=v_stats,
+                model_name=model_name,
+                num_epochs=num_epochs,
+                patch_size=exp_cfg.patch_size,
+                pixels_per_batch=exp_cfg.cache_pixels_per_slice,
+                lr=exp_cfg.lr,
+                weight_decay=exp_cfg.weight_decay,
+                grad_clip=exp_cfg.grad_clip,
+                device=device,
+                train_region=exp_cfg.train_region,
+            )
+            train_time = time.time() - t_train_start
+            print(f"Training time: {train_time / 60:.1f} min")
+
+            model_path = os.path.join(exp_cfg.save_dir, f"{safe_model_name(model_name)}.pt")
+            torch.save(model.state_dict(), model_path)
+            print(f"Saved model: {model_path}")
+
+            log_path = os.path.join(exp_cfg.save_dir, f"train_log_{safe_model_name(model_name)}.csv")
+            pd.DataFrame({"epoch": range(1, len(train_log) + 1), "loss": train_log}).to_csv(
+                log_path, index=False
+            )
+            print(f"Saved train log: {log_path}")
+
+        # --- Evaluate per V ---
+        model = model.to(device)
+        model.eval()
+
+        print(f"\n{'=' * 60}")
+        print(f"Per-V evaluation on test slice {global_test_idx}, region {region}")
+        print(f"{'=' * 60}")
+
+        model_metrics_df, base_metrics, model_preds, base_preds, target_arr = \
+            evaluate_multirate(
+                model=model,
+                eval_dataset=eval_dataset,
+                extractors=extractors,
+                geo_dict=geo_dict,
+                target_stats=target_stats,
+                v_stats=v_stats,
+                sparse_views=sparse_views,
+                test_idx=global_test_idx,
+                region=region,
+                patch_size=exp_cfg.patch_size,
+                chunk_size=exp_cfg.chunk_size_eval,
+                device=device,
+            )
+
+        all_model_preds[model_name] = model_preds
+        all_model_metrics[model_name] = model_metrics_df
+
+        # Capture baselines from first model (they are model-independent).
+        if baseline_preds is None:
+            baseline_preds = base_preds
+            baseline_metrics_raw = base_metrics
+
+        # Save per-model metrics
+        safe_name = safe_model_name(model_name)
+        metrics_path = os.path.join(exp_cfg.save_dir, f"multirate_per_v_metrics_{safe_name}.csv")
+        model_metrics_df.to_csv(metrics_path)
+        print(f"Saved per-V metrics: {metrics_path}")
+        print(model_metrics_df[["PSNR", "SSIM"]])
+
+        # Save per-model results
+        results_path = os.path.join(exp_cfg.save_dir, f"multirate_results_{safe_name}.pt")
+        torch.save(
+            {
+                "target": target_arr,
+                "preds": model_preds,
+                "baseline_preds": base_preds,
+                "metrics": model_metrics_df.to_dict(),
+                "baseline_metrics": base_metrics,
+                "sparse_views": sparse_views,
+                "region": region,
+                "model_name": model_name,
+            },
+            results_path,
+        )
+        print(f"Saved results: {results_path}")
+
+    # --- FBP baselines ---
+    x0, x1, y0, y1 = region
+    precomputed_fbp = compute_fbp_baselines(
+        eval_dataset=eval_dataset,
+        geo_dict=geo_dict,
+        sparse_views=sparse_views,
+        test_idx=global_test_idx,
+        region=region,
+        device=device,
+    )
+    fbp_metrics = precomputed_fbp["fbp_metrics"]
+    fbp_preds = precomputed_fbp["full_fbp_preds"]
+
+    # --- Build all_methods_metrics.csv (long format) ---
+    rows = []
+    method_order = ["FBP", "Local-rank closed"]
+
+    for V in sparse_views:
+        for method in method_order:
+            if method == "FBP":
+                m = fbp_metrics[V]
+            else:
+                m = baseline_metrics_raw[method][V]
+            rows.append({
+                "V": V,
+                "method": method,
+                "MSE": m["MSE"],
+                "MAE": m["MAE"],
+                "PSNR": m["PSNR"],
+                "SSIM": m["SSIM"],
+            })
+
+    for model_name in model_names:
+        method_label = short_label(model_name)
+        method_order.append(method_label)
+        mdf = all_model_metrics[model_name]
+        for V in sparse_views:
+            rows.append({
+                "V": V,
+                "method": method_label,
+                "MSE": mdf.loc[V, "MSE"],
+                "MAE": mdf.loc[V, "MAE"],
+                "PSNR": mdf.loc[V, "PSNR"],
+                "SSIM": mdf.loc[V, "SSIM"],
+            })
+
+    all_methods_df = pd.DataFrame(rows)
+    all_methods_path = os.path.join(exp_cfg.save_dir, "multirate_all_methods_metrics.csv")
+    all_methods_df.to_csv(all_methods_path, index=False)
+    print(f"\nSaved all-methods metrics: {all_methods_path}")
+
+    # --- Grid comparison figure ---
+    # Rows = V, Cols = [Target, FBP, Center base, Local-rank closed, model_1, ...]
+    preds_by_method = {}
+    psnr_by_method = {}
+
+    # FBP
+    fbp_region_preds = {V: fbp_preds[V][x0:x1, y0:y1] for V in sparse_views}
+    preds_by_method["FBP"] = fbp_region_preds
+    psnr_by_method["FBP"] = {V: fbp_metrics[V]["PSNR"] for V in sparse_views}
+
+    col_labels = ["FBP"]
+
+    # Parameter-free baseline
+    preds_by_method["Local-rank closed"] = baseline_preds["Local-rank closed"]
+    psnr_by_method["Local-rank closed"] = {
+        V: baseline_metrics_raw["Local-rank closed"][V]["PSNR"] for V in sparse_views
+    }
+    col_labels.append("Local-rank closed")
+
+    # Learned models
+    for model_name in model_names:
+        short = short_label(model_name)
+        preds_by_method[short] = all_model_preds[model_name]
+        psnr_by_method[short] = {V: all_model_metrics[model_name].loc[V, "PSNR"]
+                                 for V in sparse_views}
+        col_labels.append(short)
+
+    fig_path = os.path.join(exp_cfg.save_dir, "multirate_comparison.png")
+    plot_comparison_grid(
+        target=target_arr,
+        preds_by_method=preds_by_method,
+        psnr_by_method=psnr_by_method,
+        col_labels=col_labels,
+        sparse_views=sparse_views,
+        save_path=fig_path,
+        show=False,
+    )
+    print(f"Saved comparison figure: {fig_path}")
+
+    # --- Save all results ---
+    all_results = {
+        "target": target_arr,
+        "fbp_preds": fbp_preds,
+        "fbp_metrics": fbp_metrics,
+        "baseline_preds": baseline_preds,
+        "baseline_metrics": baseline_metrics_raw,
+        "model_preds": all_model_preds,
+        "model_metrics": {n: df.to_dict() for n, df in all_model_metrics.items()},
+        "sparse_views": sparse_views,
+        "region": region,
+        "model_names": model_names,
+        "method_order": method_order,
+    }
+    results_path = os.path.join(exp_cfg.save_dir, "multirate_all_results.pt")
+    torch.save(all_results, results_path)
+    print(f"Saved all results: {results_path}")
+
+    # --- Final summary ---
+    print("\n" + "=" * 100)
+    print("FINAL SUMMARY")
+    print("=" * 100)
+
+    # Header: FBP | Local-rank closed | model_1 | model_2 | ...
+    header = f"{'V':>5s}  {'FBP PSNR':>10s}  {'FBP SSIM':>10s}"
+    header += f"  {'LR-closed PSNR':>15s}  {'LR-closed SSIM':>15s}"
+    for model_name in model_names:
+        label = short_label(model_name)
+        label = label[:16] if len(label) > 16 else label
+        header += f"  {label + ' PSNR':>14s}  {label + ' SSIM':>14s}"
+    print(header)
+    print("-" * len(header.expandtabs()))
+
+    for V in sparse_views:
+        line = f"{V:5d}  {fbp_metrics[V]['PSNR']:10.4f}  {fbp_metrics[V]['SSIM']:10.6f}"
+        line += f"  {baseline_metrics_raw['Local-rank closed'][V]['PSNR']:15.4f}"
+        line += f"  {baseline_metrics_raw['Local-rank closed'][V]['SSIM']:15.6f}"
+        for model_name in model_names:
+            mdf = all_model_metrics[model_name]
+            line += f"  {mdf.loc[V, 'PSNR']:14.4f}  {mdf.loc[V, 'SSIM']:14.6f}"
+        print(line)
+
+
+if __name__ == "__main__":
+    main()

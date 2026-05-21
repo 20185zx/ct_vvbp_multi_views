@@ -1,0 +1,50 @@
+{
+  "experiment_name": "cto_adapted_astra_dc_multirate",
+  "model_names": [
+    "CTO-adapted ASTRA-DC"
+  ],
+  "region_name": "center_256",
+  "region": [128, 384, 128, 384],
+  "dicom_folder": null,
+  "results_folder": "Results_512_multirate",
+  "save_dir": "outputs/cto_adapted_astra_dc_multirate",
+  "experiment": {
+    "full_views": 240,
+    "sparse_views": [8, 24, 48, 80],
+    "image_size": 512,
+    "n_detec": 736,
+    "d_detec": 1.3696,
+    "d_voxel": 0.6641,
+    "DSO": 595.0,
+    "DOD": 490.6,
+    "train_batch_size": 1,
+    "patch_size": 3,
+    "train_region": null,
+    "cache_num_batches": null,
+    "cache_pixels_per_slice": 8192,
+    "cached_batch_size": 8192,
+    "num_epochs": 10,
+    "lr": 0.001,
+    "weight_decay": 0.000001,
+    "grad_clip": 1.0,
+    "chunk_size_eval": 8192,
+    "rebuild_train_cache": false,
+    "rebuild_eval_cache": false,
+    "seed": 42,
+
+    "cto_sino_hidden": 32,
+    "cto_image_hidden": 32,
+    "cto_cascades": 3,
+    "cto_sino_residual_scale": 0.01,
+    "cto_image_reg_scale": 0.01,
+    "cto_dc_step": 0.0000001,
+
+    "udno_pools": 4,
+    "udno_radius_cutoff": 0.02,
+    "udno_kernel_shape": [6, 7],
+    "udno_drop_prob": 0.0,
+
+    "sino_padding_mode": "sino_circular",
+    "image_padding_mode": "reflect"
+  }
+}
