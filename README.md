@@ -1,14 +1,20 @@
-# CT VVBP Local-Rank Reconstruction
+# CT VVBP Multi-rate Reconstruction (ASTRA CTO-adapted)
 
-This repository contains the cleaned VVBP-based sparse-view CT reconstruction experiments.
+Sparse-view CT reconstruction experiments using VVBP (volume voxel back projection)-based local-rank methods and CTO-adapted deep learning with ASTRA-based strict projection/backprojection.
 
 ## Current focus
 
-The active comparison is:
+The active experiments span two tracks:
 
-1. `center base`
-2. `local-rank center integral closed` parameter-free baseline
-3. one selected learnable model, usually `local rank center integral mlp, 10 epochs`
+**Track 1 — Local-rank VVBP reconstruction** (patch-based):
+- `center base`
+- `local-rank center integral closed` parameter-free baseline
+- selected learnable model (e.g. `local rank center integral mlp, 10 epochs`)
+
+**Track 2 — CTO-adapted multirate reconstruction** (ASTRA-based):
+- CTO-adapted model with strict sparse-matrix projection/backprojection
+- UDNO and dynamic-UDNO variants
+- Multirate evaluation at 8, 24, 48, 80 sparse views
 
 ## Project structure
 
@@ -18,30 +24,55 @@ scripts/                      Entry-point scripts
 src/data/                     DICOM loading, VVBP patch extraction, cache building
 src/evaluation/               Metrics, region prediction, visualization
 src/experiments/              Config-driven experiment runner
-src/geometry/                 Fan-beam geometry, fixed FBP, VVBP extractor
-src/models/                   Active model implementations only
+src/geometry/                 Fan-beam geometry, FBP, VVBP extractor, ASTRA projectors
+src/models/                   Model implementations (local-rank + CTO + UDNO)
 src/training/                 Cached training loop
 src/utils/                    Config and seed utilities
 ```
 
-## Main command
+## Commands
+
+Local-rank VVBP experiments:
 
 ```bash
-python scripts/run_from_config.py --config configs/patch_size_3_local_rank_center_integral_mlp.json
+python scripts/run_local_rank_center_integral.py --config configs/patch_size_3_local_rank_center_integral_mlp.json
 ```
 
-## Active model configs
+CTO-adapted multirate experiments:
 
-- `configs/patch_size_3_local_rank_center_integral_mlp.json`
-- `configs/patch_size_3_local_rank_center_closed_mlp.json`
-- `configs/patch_size_3_local_rank_center_mlp.json`
-- `configs/patch_size_3_merged_local_sorted.json`
+```bash
+python scripts/run_cto_multirate.py --config configs/cto_multirate.json
+```
 
-The sinogram upsampling baseline is kept as a separate baseline workflow:
+Multirate VVBP baseline:
+
+```bash
+python scripts/run_multirate_vvbp.py --config configs/multirate_selected_models.json
+```
+
+FBP baseline:
+
+```bash
+python scripts/run_fbp_baseline.py --config configs/multirate_fbp_baseline.json
+```
+
+Sinogram upsampling baseline:
 
 ```bash
 python scripts/run_sino_upsample_baseline.py --config configs/sino_60_to_240_baseline.json
 ```
+
+## Active configs
+
+- `configs/patch_size_3_local_rank_center_integral_mlp.json`
+- `configs/patch_size_3_local_rank_center_integral_mlp_v120.json`
+- `configs/patch_size_3_local_rank_center_closed_mlp.json`
+- `configs/patch_size_3_local_rank_center_mlp.json`
+- `configs/patch_size_3_merged_local_sorted.json`
+- `configs/cto_multirate.json`
+- `configs/multirate_selected_models.json`
+- `configs/multirate_fbp_baseline.json`
+- `configs/sino_60_to_240_baseline.json`
 
 ## Notes
 
