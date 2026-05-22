@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+plt.rcParams.update({"font.size": 12})
+
 
 def plot_comparison_images(images, titles, save_path=None, show=True):
     n = len(images)
@@ -38,7 +40,7 @@ def plot_comparison_grid(target, preds_by_method, psnr_by_method, col_labels,
     """
     n_rows = len(sparse_views)
     n_cols = 1 + len(col_labels)  # target + methods
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 6 * n_rows))
 
     if n_rows == 1:
         axes = axes[np.newaxis, :]
@@ -52,9 +54,9 @@ def plot_comparison_grid(target, preds_by_method, psnr_by_method, col_labels,
         ax = axes[r, 0]
         ax.imshow(target, cmap="gray", vmin=vmin, vmax=vmax)
         if is_first_row:
-            ax.set_title("Target", fontsize=11, fontweight="bold")
+            ax.set_title("Target", fontsize=14, fontweight="bold")
         ax.axis("off")
-        ax.set_ylabel(f"V={V}", fontsize=12, rotation=90, labelpad=15, va="center")
+        ax.set_ylabel(f"V={V}", fontsize=15, rotation=90, labelpad=15, va="center")
 
         for c, method in enumerate(col_labels):
             ax = axes[r, c + 1]
@@ -66,10 +68,10 @@ def plot_comparison_grid(target, preds_by_method, psnr_by_method, col_labels,
                 title = method
                 if psnr_val is not None:
                     title += f"\nPSNR={psnr_val:.2f}"
-                ax.set_title(title, fontsize=11, fontweight="bold")
+                ax.set_title(title, fontsize=14, fontweight="bold")
             else:
                 if psnr_val is not None:
-                    ax.set_title(f"PSNR={psnr_val:.2f}", fontsize=11)
+                    ax.set_title(f"PSNR={psnr_val:.2f}", fontsize=12)
             ax.axis("off")
 
     plt.tight_layout()
