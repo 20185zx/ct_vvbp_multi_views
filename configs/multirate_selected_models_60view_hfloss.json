@@ -1,0 +1,51 @@
+{
+  "experiment_name": "multirate_vvbp_local_rank_60view_hfloss",
+  "model_names": [
+    "local rank center integral mlp, 10 epochs"
+  ],
+  "region_name": "center_256",
+  "region": [128, 384, 128, 384],
+  "dicom_folder": "full_1mm/L067/full_1mm",
+  "results_folder": "Results_512_multirate_60view",
+  "save_dir": "outputs/multirate_vvbp_local_rank_hfloss",
+  "experiment": {
+    "full_views": 60,
+    "sparse_views": [60],
+
+    "image_size": 512,
+    "n_detec": 736,
+    "d_detec": 1.3696,
+    "d_voxel": 0.6641,
+    "DSO": 595.0,
+    "DOD": 490.6,
+
+    "train_batch_size": 1,
+    "patch_size": 3,
+    "train_region": null,
+
+    "cache_num_batches": null,
+    "cache_pixels_per_slice": 8192,
+    "cached_batch_size": 8192,
+    "num_epochs": 10,
+
+    "lr": 0.001,
+    "weight_decay": 0.000001,
+    "grad_clip": null,
+    "chunk_size_eval": 8192,
+
+    "rebuild_train_cache": false,
+    "rebuild_eval_cache": false,
+    "seed": 42,
+
+    "loss": {
+      "type": "mse_hf",
+      "lambda_grad": 0.01,
+      "lambda_lap": 0.005,
+      "gradient_operator": "sobel",
+      "laplacian_operator": "laplacian_3x3"
+    },
+
+    "hf_patch_dim": 32,
+    "hf_steps_per_epoch": 128
+  }
+}
