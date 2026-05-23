@@ -3,12 +3,39 @@ import math
 import random
 from typing import Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 
 from src.data.feature_builder import make_model_features_from_values
-from src.data.local_vvbp import sample_random_coords, gather_sorted_vvbp_patch
+from src.data.local_vvbp import sample_random_coords, gather_sorted_vvbp_patch, gather_raw_vvbp_patch
 from src.training.losses import compute_total_loss
+
+
+def _compute_GR2_raw(raw_patch: torch.Tensor, deltaI_patch: torch.Tensor,
+                      eps: float = 1e-8):
+    """Compute G and R² from RAW (unsorted, per-view) patch VVBP + exact ΔI.
+
+    Through-origin OLS; SS_tot is uncentered (null model = zero).
+    See ``ExactDetectorGeometryLocalRankIntegralMLPNet.compute_G_R2_from_raw``.
+    """
+    B, J, K = raw_patch.shape
+    centre_idx = J // 2
+
+    Qc = raw_patch[:, centre_idx, :]         # [B, K]
+    Y = raw_patch - Qc[:, None, :]           # [B, J, K]
+    D = deltaI_patch                         # [B, J, K]
+
+    DS = (D * D).sum(dim=1)                  # [B, K]
+    DY = (D * Y).sum(dim=1)                  # [B, K]
+    G = DY / (DS + eps)                      # [B, K]
+
+    Yh = D * G[:, None, :]                   # [B, J, K]
+    SS_res = ((Y - Yh) ** 2).sum(dim=1)      # [B, K]
+    SS_tot = (Y * Y).sum(dim=1) + eps       # [B, K]  uncentered
+    R2 = (1.0 - SS_res / SS_tot).clamp(0.0, 1.0)
+
+    return G, R2
 
 
 def train_direct_model_cached(
@@ -447,3 +474,190 @@ def train_direct_model_cached_hf(
               f"img={avg_img:.6f}{part} total={avg_total:.6f} time={elapsed:.1f}s")
 
     return train_log, comp_log if hf_enabled else None
+
+
+# ---------------------------------------------------------------------------
+# Geometry-token trainer: on-the-fly VVBP + exact detector ΔI  →  G, R²
+# ---------------------------------------------------------------------------
+def train_multirate_model_geometry_token(
+    model,
+    train_loader,
+    extractors,
+    geo,
+    target_stats,
+    v_stats,
+    G_stats,
+    model_name: str = "geometry_token",
+    num_epochs: int = 10,
+    patch_size: int = 3,
+    pixels_per_batch: int = 8192,
+    lr: float = 1e-3,
+    weight_decay: float = 1e-6,
+    grad_clip: Optional[float] = None,
+    device: str = "cuda",
+    train_region: Optional[list] = None,
+):
+    """Train with on-the-fly VVBP + geometry token (G, R²).
+
+    Differs from ``train_multirate_model`` by computing exact detector-index
+    offsets ΔI from pixel coords + fan-beam geometry, which the model uses to
+    derive per-view G and R² tokens.
+
+    Args:
+        geo: LInFBP geometry dict used for detector-index computation.
+        G_stats: dict with ``G_mean``, ``G_std`` (pre-computed statistics).
+    """
+    model = model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    criterion = nn.MSELoss()
+    train_log = []
+    comp_log = []
+
+    target_mean = target_stats["target_mean"].to(device)
+    target_std = target_stats["target_std"].to(device)
+    G_mean_val = G_stats["G_mean"].to(device)
+    G_std_val = G_stats["G_std"].to(device)
+    s_mean_val = G_stats.get("s_mean", torch.tensor(0.0))
+    s_std_val = G_stats.get("s_std", torch.tensor(1.0))
+    gr_mean_val = G_stats.get("gr_mean", torch.tensor(0.0))
+    gr_std_val = G_stats.get("gr_std", torch.tensor(1.0))
+    if hasattr(s_mean_val, "to"):
+        s_mean_val = s_mean_val.to(device)
+        s_std_val = s_std_val.to(device)
+
+    for epoch in range(1, num_epochs + 1):
+        t0 = time.time()
+        model.train()
+        total_loss = 0.0
+        total_count = 0
+        epoch_G_vals = []
+        epoch_R2_vals = []
+
+        for sino_batch, img_batch in train_loader:
+            sino_batch = sino_batch.to(device, non_blocking=True)
+            img_batch = img_batch.to(device, non_blocking=True)
+
+            V = sino_batch.shape[-2]
+            extractor = extractors[V]
+            vs = v_stats[V]
+
+            batch_stats = {
+                "target_mean": target_mean,
+                "target_std": target_std,
+                "v_mean": vs["v_mean"].to(device),
+                "v_std": vs["v_std"].to(device),
+                "G_mean": G_mean_val,
+                "G_std": G_std_val,
+                "s_mean": s_mean_val,
+                "s_std": s_std_val,
+                "gr_mean": gr_mean_val,
+                "gr_std": gr_std_val,
+            }
+
+            # On-the-fly VVBP extraction
+            vvbp = extractor(sino_batch)
+            B, _, H, W, _ = vvbp.shape
+
+            xs, ys = sample_random_coords(
+                H, W, num_pixels=pixels_per_batch,
+                margin=patch_size // 2, device=device,
+                train_region=train_region,
+            )
+            values_sorted = gather_sorted_vvbp_patch(
+                vvbp, xs, ys, patch_size=patch_size, mode="3x3",
+            )
+            N = B * pixels_per_batch
+            values_sorted = values_sorted.reshape(N, values_sorted.shape[2], values_sorted.shape[3])
+
+            # ---- Raw (unsorted) patch for G/R2 computation ----
+            raw_patch = gather_raw_vvbp_patch(vvbp, xs, ys, patch_size=patch_size)
+            raw_patch = raw_patch.reshape(N, raw_patch.shape[2], raw_patch.shape[3])  # [N, J, V]
+
+            target = img_batch[:, 0, xs, ys].reshape(N, 1)
+
+            # ---- Compute ΔI from exact detector coords ----
+            xs_np = xs.cpu().numpy().astype(np.int64)
+            ys_np = ys.cpu().numpy().astype(np.int64)
+            deltaI_np = compute_deltaI_patch(geo, xs_np, ys_np, int(V), patch_size=patch_size)
+            deltaI = torch.from_numpy(deltaI_np).to(device, non_blocking=True)  # [N, J, V]
+
+            # ---- Compute G/R2 from RAW values + exact ΔI ----
+            with torch.no_grad():
+                G_vals, R2_vals = _compute_GR2_raw(raw_patch, deltaI, eps=1e-8)
+                # Reorder G/R2 by centre VVBP value so they align with
+                # values_sorted (whose centre row is sorted by value).
+                centre_idx = raw_patch.shape[1] // 2
+                raw_centre = raw_patch[:, centre_idx, :]     # [N, V] view order
+                _, c_sort = torch.sort(raw_centre, dim=-1)   # value-sort index
+                G_aligned = torch.gather(G_vals, dim=-1, index=c_sort)
+                R2_aligned = torch.gather(R2_vals, dim=-1, index=c_sort)
+            batch_stats["G"] = G_aligned.detach()    # [N, K] aligned with values_sorted
+            batch_stats["R2"] = R2_aligned.detach()
+
+            # Normalise target
+            y_norm = (target - batch_stats["target_mean"]) / batch_stats["target_std"]
+
+            if getattr(model, "input_mode", "features") == "values_sorted":
+                pred_norm = model(values_sorted, batch_stats)
+            else:
+                features = make_model_features_from_values(
+                    values_sorted=values_sorted,
+                    stats=batch_stats,
+                    use_coord=getattr(model, "use_coord", False),
+                    patch_size=patch_size,
+                )
+                pred_norm = model(features)
+
+            loss = criterion(pred_norm, y_norm)
+            optimizer.zero_grad()
+            loss.backward()
+            if grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+            optimizer.step()
+
+            bs = y_norm.shape[0]
+            total_loss += float(loss.item()) * bs
+            total_count += bs
+
+            # Log G/R2 diagnostics
+            epoch_G_vals.append(float(G_vals.mean().cpu()))
+            epoch_R2_vals.append(float(R2_vals.mean().cpu()))
+
+        avg_loss = total_loss / max(total_count, 1)
+        train_log.append(avg_loss)
+        g_avg = sum(epoch_G_vals) / max(len(epoch_G_vals), 1) if epoch_G_vals else 0.0
+        r2_avg = sum(epoch_R2_vals) / max(len(epoch_R2_vals), 1) if epoch_R2_vals else 0.0
+        r2_med = float(np.median(epoch_R2_vals)) if epoch_R2_vals else 0.0
+
+        # Gate epoch stats
+        gate_info = {}
+        if hasattr(model, "get_gate_epoch_stats"):
+            gate_info = model.get_gate_epoch_stats()
+
+        comp_log.append({
+            "epoch": epoch,
+            "loss": float(avg_loss),
+            "G_mean": g_avg,
+            "R2_mean": r2_avg,
+            "R2_median": r2_med,
+            "G_std_global": float(G_std_val.cpu()),
+            **gate_info,
+        })
+
+        gate_str = ""
+        if gate_info:
+            gate_str = (f" s_batch={gate_info.get('s_batch_mean',0):.4e}"
+                        f" gate=[{gate_info.get('gate_mean',0):.3f},"
+                        f"{gate_info.get('gate_min',0):.3f},"
+                        f"{gate_info.get('gate_max',0):.3f}]"
+                        f" a={gate_info.get('gate_a',0):.3f}"
+                        f" b={gate_info.get('gate_b',0):.3f}")
+        print(f"{model_name} | Epoch [{epoch:03d}/{num_epochs}] "
+              f"loss={avg_loss:.6f} G={g_avg:.4e} R2={r2_avg:.4f}"
+              f"{gate_str} time={time.time() - t0:.1f}s")
+
+    return train_log, comp_log
+
+
+# Re-export for convenience
+from src.geometry.fanbeam import compute_deltaI_patch

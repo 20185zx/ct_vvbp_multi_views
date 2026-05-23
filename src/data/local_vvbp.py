@@ -59,6 +59,36 @@ def gather_sorted_vvbp_patch(vvbp, xs, ys, patch_size=3, mode="3x3"):
     raise ValueError(f"Unknown mode: {mode}")
 
 
+def gather_raw_vvbp_patch(vvbp, xs, ys, patch_size=3):
+    """Gather raw (unsorted) per-view VVBP values for each pixel's patch.
+
+    Unlike ``gather_sorted_vvbp_patch``, this preserves the original view
+    ordering so that ``values[b, p, j, v]`` is the VVBP value at view *v* for
+    patch position *j* of pixel *p*.  Required for detector-coordinate-based
+    G / R² computation where per-view correspondence must be exact.
+
+    Args:
+        vvbp: [B, 1, H, W, V]  VVBP tensor.
+        xs, ys: [P] pixel coordinates.
+        patch_size: odd integer (3 → 3×3).
+
+    Returns:
+        raw: [B, P, J, V]  where J = patch_size², views in original order.
+    """
+    r = patch_size // 2
+    B = vvbp.shape[0]
+    P = xs.shape[0]
+    J = patch_size * patch_size
+    V = vvbp.shape[4]
+    out = torch.zeros(B, P, J, V, dtype=vvbp.dtype, device=vvbp.device)
+    idx = 0
+    for du in range(-r, r + 1):
+        for dv in range(-r, r + 1):
+            out[:, :, idx, :] = vvbp[:, 0, xs + du, ys + dv, :]
+            idx += 1
+    return out
+
+
 @torch.no_grad()
 def extract_cache_items_from_batch(
     sino_batch,

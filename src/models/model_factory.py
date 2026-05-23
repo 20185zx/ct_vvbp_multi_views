@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from .local_rank_center_closed_mlp import LocalRankCenterClosedMLPNet
 from .local_rank_center_integral_mlp import LocalRankCenterIntegralMLPNet
+from .exact_detector_geometry_local_rank_integral_mlp import ExactDetectorGeometryLocalRankIntegralMLPNet
+from .exact_detector_geometry_gated_local_rank_integral_mlp import ExactDetectorGeometryGatedLocalRankIntegralMLPNet
+from .exact_detector_geometry_gated_residual_local_rank_integral_mlp import ExactDetectorGeometryGatedResidualLocalRankIntegralMLPNet
 from .local_rank_center_mlp import LocalRankCenterMLPNet
 from .merged_local_sorted import MergedLocalSortedVVBPNet
 
@@ -17,6 +20,12 @@ MODEL_FACTORIES = {
     "local_rank_center_closed_mlp": LocalRankCenterClosedMLPNet,
     "merged local sorted, 10 epochs": MergedLocalSortedVVBPNet,
     "merged_local_sorted": MergedLocalSortedVVBPNet,
+    "exact detector geometry local rank center integral mlp, 10 epochs": ExactDetectorGeometryLocalRankIntegralMLPNet,
+    "exact_detector_geometry_local_rank_integral_mlp": ExactDetectorGeometryLocalRankIntegralMLPNet,
+    "exact detector geometry gated local rank center integral mlp, 10 epochs": ExactDetectorGeometryGatedLocalRankIntegralMLPNet,
+    "exact_detector_geometry_gated_local_rank_integral_mlp": ExactDetectorGeometryGatedLocalRankIntegralMLPNet,
+    "exact detector geometry gated residual local rank center integral mlp, 10 epochs": ExactDetectorGeometryGatedResidualLocalRankIntegralMLPNet,
+    "exact_detector_geometry_gated_residual_local_rank_integral_mlp": ExactDetectorGeometryGatedResidualLocalRankIntegralMLPNet,
 }
 
 

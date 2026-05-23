@@ -191,3 +191,102 @@ def load_or_generate_geo(
         geo["indices"] = pixel_index_cal_numpy(geo, device=device, save_path=indices_path, verbose=True)
     print(f"geo {views} indices:", geo["indices"].shape)
     return geo
+
+
+# ---------------------------------------------------------------------------
+# Exact detector coordinate utilities (for geometry-aware tokens)
+# ---------------------------------------------------------------------------
+def compute_detector_indices(
+    geo: Dict,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    views: int,
+) -> np.ndarray:
+    """Compute fractional detector index I(pixel, view) via fan-beam geometry.
+
+    Reuses ``compute_deltas_cube_np`` — the same math as ``pixel_index_cal_numpy``.
+
+    Args:
+        geo: LInFBP geometry dict  (needs DSO, DSD, nDetecU, start_angle,
+             end_angle, sVoxelX, sVoxelY, dVoxelX, dVoxelY, offOriginX,
+             offOriginY, mode).
+        xs, ys: [P] integer pixel coordinates  (row / column).
+        views: number of projection views.
+
+    Returns:
+        det_idx: [views, P]  fractional detector index for each view × pixel.
+    """
+    nDetecU = int(geo["nDetecU"])
+    views = int(views)
+    alphas = np.linspace(geo["start_angle"], geo["end_angle"], views, endpoint=False)
+    P = len(xs)
+
+    det_idx = np.zeros((views, P), dtype=np.float32)
+
+    for angle_idx in range(views):
+        alpha = -alphas[angle_idx]
+        origin, deltaX, deltaY = compute_deltas_cube_np(geo, alpha)
+
+        P_x = (origin["x"]
+               + xs.astype(np.float32) * deltaX["x"]
+               + ys.astype(np.float32) * deltaY["x"])
+        P_y = (origin["y"]
+               + xs.astype(np.float32) * deltaX["y"]
+               + ys.astype(np.float32) * deltaY["y"])
+
+        S_x = float(geo["DSO"])
+        S_y = 0.0
+        vectX = P_x - S_x
+        vectY = P_y - S_y
+        t = (geo["DSO"] - geo["DSD"] - S_x) / vectX
+        y_proj = vectY * t + S_y
+        det_idx[angle_idx, :] = y_proj + nDetecU / 2.0 - 0.5
+
+    return det_idx  # [views, P]
+
+
+def compute_deltaI_patch(
+    geo: Dict,
+    xs: np.ndarray,
+    ys: np.ndarray,
+    views: int,
+    patch_size: int = 3,
+) -> np.ndarray:
+    """Compute exact detector-index offsets for every patch neighbour.
+
+    For each centre pixel and each view, I(p+δ, v) - I(p, v) for every δ
+    in the ``patch_size × patch_size`` neighbourhood.
+
+    Args:
+        geo: LInFBP geometry dict.
+        xs, ys: [P] integer centre-pixel coordinates.
+        views: number of projection views.
+        patch_size: odd integer (3 → 3×3).
+
+    Returns:
+        deltaI: [P, J, views]  where J = patch_size², centre position at J//2.
+    """
+    r = patch_size // 2
+    J = patch_size * patch_size
+    P = len(xs)
+    V = int(views)
+
+    # Flatten all patch positions: [P, J]
+    xs_all = np.zeros((P, J), dtype=np.int64)
+    ys_all = np.zeros((P, J), dtype=np.int64)
+    idx = 0
+    for du in range(-r, r + 1):
+        for dv in range(-r, r + 1):
+            xs_all[:, idx] = xs + du
+            ys_all[:, idx] = ys + dv
+            idx += 1
+
+    # Compute I for all positions at once: [V, P*J]
+    I_flat = compute_detector_indices(geo, xs_all.ravel(), ys_all.ravel(), V)
+    I = I_flat.reshape(V, P, J).transpose(1, 2, 0)  # [P, J, V]
+
+    centre_idx = J // 2
+    I_centre = I[:, centre_idx:centre_idx + 1, :]      # [P, 1, V]
+    deltaI = I - I_centre                                 # [P, J, V]
+
+    return deltaI.astype(np.float32)

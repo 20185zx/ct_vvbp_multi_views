@@ -1,13 +1,13 @@
 {
-  "experiment_name": "multirate_vvbp_local_rank_60view",
+  "experiment_name": "multirate_vvbp_local_rank_60view_exactdetector_gated_residual",
   "model_names": [
-    "local rank center integral mlp, 10 epochs"
+    "exact detector geometry gated residual local rank center integral mlp, 10 epochs"
   ],
   "region_name": "center_256",
   "region": [128, 384, 128, 384],
   "dicom_folder": "full_1mm/L067/full_1mm",
   "results_folder": "Results_512_multirate_60view",
-  "save_dir": "outputs/multirate_vvbp_local_rank_60view",
+  "save_dir": "outputs/multirate_vvbp_local_rank_exactdetector_gated_residual",
   "experiment": {
     "full_views": 60,
     "sparse_views": [60],
@@ -35,6 +35,20 @@
 
     "rebuild_train_cache": true,
     "rebuild_eval_cache": true,
-    "seed": 42
+    "seed": 42,
+
+    "geometry_residual": {
+      "enabled": true,
+      "mode": "gated_additive_residual",
+      "gate_feature": "absG_R2",
+      "residual_features": ["G_R2", "absG_R2"],
+      "lambda_geo": 0.03,
+      "learnable_gate_affine": true,
+      "gate_a_init": 1.0,
+      "gate_b_init": 0.0,
+      "zero_init_residual_last_layer": true,
+      "normalize_residual_features": true,
+      "eps": 1e-8
+    }
   }
 }
