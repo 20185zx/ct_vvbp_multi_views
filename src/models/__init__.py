@@ -8,6 +8,7 @@ from .exact_detector_geometry_gated_residual_local_rank_integral_mlp import Exac
 from .local_rank_center_mlp import LocalRankCenterMLPNet
 from .merged_local_sorted import MergedLocalSortedVVBPNet
 from .cto_adapted import CTOAdaptedNet
+from .dc_refinement import DCRefinement
 from .model_factory import MODEL_FACTORIES, build_model
 
 
@@ -20,6 +21,7 @@ __all__ = [
     "LocalRankCenterClosedMLPNet",
     "MergedLocalSortedVVBPNet",
     "CTOAdaptedNet",
+    "DCRefinement",
     "MODEL_FACTORIES",
     "build_model",
 ]

@@ -51,6 +51,7 @@ class AstraSparseFanBeamProjector:
         image_size: int = 256,
         n_detec: int = 672,
         d_detec: float = 1.0,
+        d_voxel: float = 1.0,
         DSO: float = 595.0,
         DOD: float = 480.0,
         views_list: Optional[Iterable[int]] = None,
@@ -61,6 +62,7 @@ class AstraSparseFanBeamProjector:
         self.image_size = int(image_size)
         self.n_detec = int(n_detec)
         self.d_detec = float(d_detec)
+        self.d_voxel = float(d_voxel)
         self.DSO = float(DSO)
         self.DOD = float(DOD)
         self.angle_range = str(angle_range)
@@ -91,7 +93,12 @@ class AstraSparseFanBeamProjector:
         V = int(views)
         D = self.n_detec
 
-        vol_geom = astra.create_vol_geom(H, W)
+        s_voxel = self.image_size * self.d_voxel
+        vol_geom = astra.create_vol_geom(
+            H, W,
+            -s_voxel / 2, s_voxel / 2,
+            -s_voxel / 2, s_voxel / 2,
+        )
         angles = self._make_angles(V)
 
         proj_geom = astra.create_proj_geom(

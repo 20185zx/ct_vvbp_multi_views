@@ -185,6 +185,7 @@ def main():
         image_size=int(getattr(exp_cfg, "image_size", 256)),
         n_detec=int(getattr(exp_cfg, "n_detec", 672)),
         d_detec=float(getattr(exp_cfg, "d_detec", 1.0)),
+        d_voxel=float(getattr(exp_cfg, "d_voxel", 1.0)),
         DSO=float(getattr(exp_cfg, "DSO", 595.0)),
         DOD=float(getattr(exp_cfg, "DOD", 480.0)),
         views_list=sparse_views,
