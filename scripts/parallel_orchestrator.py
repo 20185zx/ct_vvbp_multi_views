@@ -157,8 +157,12 @@ class TaskResult:
 
     @property
     def ok(self) -> bool:
-        """True if the task completed without error and implementer returned 0."""
-        return self.error is None and self.implementer_rc == 0
+        """True if the task completed without error, implementer returned 0, and reviewer (if run) returned 0."""
+        return (
+            self.error is None
+            and self.implementer_rc == 0
+            and (self.reviewer_rc is None or self.reviewer_rc == 0)
+        )
 
 
 # ---------------------------------------------------------------------------
