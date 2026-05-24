@@ -30,7 +30,7 @@ src/training/                 Cached training loop
 src/utils/                    Config and seed utilities
 ```
 
-`cache/` 存储可再生成缓存，`outputs/` 存放实验结果输出。
+`cache/` 用来放缓存文件（可以重新生成），`configs/` 用来放 JSON 配置文件，`outputs/` 用来放实验结果（训练输出、指标、图片等）。
 
 ## Commands
 
