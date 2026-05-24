@@ -28,7 +28,9 @@ from src.evaluation.region_eval import evaluate_multirate
 from src.evaluation.fbp_baseline import compute_fbp_baselines
 from src.evaluation.visualization import plot_comparison_grid
 from src.models import build_model
-from src.training import estimate_multirate_stats, train_multirate_model
+from src.training import estimate_multirate_stats
+from src.data.local_vvbp import sample_random_coords, gather_sorted_vvbp_patch
+from src.data.feature_builder import make_model_features_from_values
 
 
 def safe_model_name(name: str) -> str:
@@ -38,6 +40,72 @@ def safe_model_name(name: str) -> str:
 def short_label(name: str) -> str:
     """Strip _10_epochs suffix for display."""
     return safe_model_name(name).replace("_10_epochs", "")
+
+
+def train_one_multirate_epoch(model, train_loader, extractors, v_stats,
+                             target_mean, target_std, optimizer, criterion,
+                             patch_size, pixels_per_batch, device,
+                             train_region=None, grad_clip=None):
+    """Run one training epoch over the multi-rate loader. Returns avg loss and elapsed time."""
+    model.train()
+    t0 = time.time()
+    total_loss = 0.0
+    total_count = 0
+
+    for sino_batch, img_batch in train_loader:
+        sino_batch = sino_batch.to(device, non_blocking=True)
+        img_batch = img_batch.to(device, non_blocking=True)
+
+        V = sino_batch.shape[-2]
+        extractor = extractors[V]
+        vs = v_stats[V]
+        batch_stats = {
+            "target_mean": target_mean,
+            "target_std": target_std,
+            "v_mean": vs["v_mean"].to(device),
+            "v_std": vs["v_std"].to(device),
+        }
+
+        vvbp = extractor(sino_batch)
+        B, _, H, W, _ = vvbp.shape
+
+        xs, ys = sample_random_coords(
+            H, W, num_pixels=pixels_per_batch,
+            margin=patch_size // 2, device=device,
+            train_region=train_region,
+        )
+        values_sorted = gather_sorted_vvbp_patch(
+            vvbp, xs, ys, patch_size=patch_size, mode="3x3",
+        )
+        N = B * pixels_per_batch
+        values_sorted = values_sorted.reshape(N, values_sorted.shape[2], values_sorted.shape[3])
+        target = img_batch[:, 0, xs, ys].reshape(N, 1)
+
+        y_norm = (target - batch_stats["target_mean"]) / batch_stats["target_std"]
+
+        if getattr(model, "input_mode", "features") == "values_sorted":
+            pred_norm = model(values_sorted, batch_stats)
+        else:
+            features = make_model_features_from_values(
+                values_sorted=values_sorted,
+                stats=batch_stats,
+                use_coord=model.use_coord,
+                patch_size=patch_size,
+            )
+            pred_norm = model(features)
+
+        loss = criterion(pred_norm, y_norm)
+        optimizer.zero_grad()
+        loss.backward()
+        if grad_clip is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+        optimizer.step()
+
+        total_loss += loss.item() * y_norm.shape[0]
+        total_count += y_norm.shape[0]
+
+    avg_loss = total_loss / max(total_count, 1)
+    return avg_loss, time.time() - t0
 
 
 def main():
@@ -157,31 +225,46 @@ def main():
                   f"test slice {global_test_idx}")
             print(f"Epochs: {num_epochs}, LR: {exp_cfg.lr}")
 
-            t_train_start = time.time()
-            train_log = train_multirate_model(
-                model=model,
-                train_loader=train_loader,
-                extractors=extractors,
-                target_stats=target_stats,
-                v_stats=v_stats,
-                model_name=model_name,
-                num_epochs=num_epochs,
-                patch_size=exp_cfg.patch_size,
-                pixels_per_batch=exp_cfg.cache_pixels_per_slice,
-                lr=exp_cfg.lr,
-                weight_decay=exp_cfg.weight_decay,
-                grad_clip=exp_cfg.grad_clip,
-                device=device,
-                train_region=exp_cfg.train_region,
+            model = model.to(device)
+            optimizer = torch.optim.Adam(
+                model.parameters(), lr=exp_cfg.lr, weight_decay=exp_cfg.weight_decay,
             )
+            criterion = torch.nn.MSELoss()
+            target_mean = target_stats["target_mean"]
+            target_std = target_stats["target_std"]
+
+            train_log = []
+            safe_name = safe_model_name(model_name)
+
+            t_train_start = time.time()
+            for epoch in range(1, num_epochs + 1):
+                avg_loss, epoch_time = train_one_multirate_epoch(
+                    model=model,
+                    train_loader=train_loader,
+                    extractors=extractors,
+                    v_stats=v_stats,
+                    target_mean=target_mean,
+                    target_std=target_std,
+                    optimizer=optimizer,
+                    criterion=criterion,
+                    patch_size=exp_cfg.patch_size,
+                    pixels_per_batch=exp_cfg.cache_pixels_per_slice,
+                    device=device,
+                    train_region=exp_cfg.train_region,
+                    grad_clip=exp_cfg.grad_clip,
+                )
+                train_log.append(avg_loss)
+                print(f"{model_name} | Epoch [{epoch:03d}/{num_epochs}] "
+                      f"loss={avg_loss:.6f} time={epoch_time:.1f}s")
+
             train_time = time.time() - t_train_start
             print(f"Training time: {train_time / 60:.1f} min")
 
-            model_path = os.path.join(exp_cfg.save_dir, f"{safe_model_name(model_name)}.pt")
+            model_path = os.path.join(exp_cfg.save_dir, f"{safe_name}.pt")
             torch.save(model.state_dict(), model_path)
-            print(f"Saved model: {model_path}")
+            print(f"Saved final model: {model_path}")
 
-            log_path = os.path.join(exp_cfg.save_dir, f"train_log_{safe_model_name(model_name)}.csv")
+            log_path = os.path.join(exp_cfg.save_dir, f"train_log_{safe_name}.csv")
             pd.DataFrame({"epoch": range(1, len(train_log) + 1), "loss": train_log}).to_csv(
                 log_path, index=False
             )
