@@ -544,6 +544,61 @@ def _print_summary(
     print()
 
 
+def _print_failure_guide(results: list[TaskResult], dry_run: bool = False) -> None:
+    """Print a per-task failure diagnosis guide when any task has failed.
+
+    Only prints in non-dry-run mode.  Determines the failure stage
+    (worktree prep / implementer / reviewer) for each failed task
+    and points the user to the relevant logs.
+    """
+    if dry_run:
+        return
+
+    failed = [
+        r for r in results
+        if r.error is not None
+        or (r.implementer_rc is not None and r.implementer_rc != 0)
+        or (r.reviewer_rc is not None and r.reviewer_rc != 0)
+    ]
+    if not failed:
+        return
+
+    print()
+    print("=" * 72)
+    print("  FAILURE GUIDE")
+    print("=" * 72)
+
+    for r in failed:
+        # Determine which stage failed
+        if r.error is not None:
+            stage = "worktree preparation"
+            detail = r.error.splitlines()[0] if r.error else ""
+        elif r.implementer_rc is not None and r.implementer_rc != 0:
+            stage = "implementer"
+            detail = f"exit code {r.implementer_rc}"
+        elif r.reviewer_rc is not None and r.reviewer_rc != 0:
+            stage = "reviewer"
+            detail = f"exit code {r.reviewer_rc}"
+        else:
+            stage = "unknown"
+            detail = ""
+
+        print()
+        print(f"  Task:         {r.task_name}")
+        print(f"  Failed at:    {stage}")
+        if detail:
+            print(f"  Detail:       {detail}")
+        print(f"  Worktree:     {r.worktree}")
+        if r.implementer_log:
+            print(f"  Impl log:     {r.implementer_log}")
+        if r.reviewer_log:
+            print(f"  Review log:   {r.reviewer_log}")
+        print(f"  Suggestion:   Check the log(s) above for full output.")
+        print(f"                Fix the issue, then re-run or merge manually.")
+
+    print()
+
+
 def _write_summary_json(
     config: OrchestratorConfig,
     results: list[TaskResult],
@@ -723,11 +778,14 @@ The same structure works for YAML (requires PyYAML).
     # ---- 5. Print summary ------------------------------------------------
     _print_summary(results, config.run_id, elapsed, dry_run=args.dry_run)
 
-    # ---- 6. Write structured JSON summary (not in dry-run) ---------------
+    # ---- 6. Print failure diagnosis guide (not in dry-run) ---------------
+    _print_failure_guide(results, dry_run=args.dry_run)
+
+    # ---- 7. Write structured JSON summary (not in dry-run) ---------------
     if not args.dry_run:
         _write_summary_json(config, results, logs_dir)
 
-    # ---- 7. Exit code ----------------------------------------------------
+    # ---- 8. Exit code ----------------------------------------------------
     if args.dry_run:
         any_failure = any(r.error is not None for r in results)
     else:
