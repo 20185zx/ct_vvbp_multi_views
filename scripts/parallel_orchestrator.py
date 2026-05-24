@@ -325,6 +325,7 @@ def _execute_one_task(
     config: OrchestratorConfig,
     repo_root: Path,
     logs_dir: Path,
+    dry_run: bool = False,
 ) -> TaskResult:
     """Execute a single task: prepare worktree → implementer → (opt) reviewer.
 
@@ -332,6 +333,9 @@ def _execute_one_task(
     can run in parallel.  It never merges, commits, pushes, or deletes
     anything — it only creates (or reuses) worktrees and runs agents inside
     them.
+
+    When *dry_run* is True, only validate worktree paths — no worktrees are
+    created and no agents are executed.
     """
     result = TaskResult(task_name=task.name, worktree=task.worktree)
 
@@ -354,19 +358,29 @@ def _execute_one_task(
         print(f"[{task.name}]  Reusing existing worktree: {wt}")
     else:
         print(f"[{task.name}]  Creating worktree: {wt}")
-        proc = _create_worktree(repo_root, task.branch, str(wt), config.base_branch)
-        if proc.returncode != 0:
-            result.error = (
-                f"Failed to create worktree.\n"
-                f"  stdout: {proc.stdout.strip()}\n"
-                f"  stderr: {proc.stderr.strip()}"
-            )
-            return result
+        if not dry_run:
+            proc = _create_worktree(repo_root, task.branch, str(wt), config.base_branch)
+            if proc.returncode != 0:
+                result.error = (
+                    f"Failed to create worktree.\n"
+                    f"  stdout: {proc.stdout.strip()}\n"
+                    f"  stderr: {proc.stderr.strip()}"
+                )
+                return result
 
-    # ---- 2. Run implementer ----------------------------------------------
+    # Set planned log paths (used by both real and dry-run modes).
     impl_log = logs_dir / f"{task.name}_implementer.log"
     result.implementer_log = str(impl_log)
 
+    # ---- dry-run: stop here, report plan, do not create files or run agents ---
+    if dry_run:
+        planned_log = str(impl_log)
+        if config.review_after_implement:
+            planned_log += f"  +  {logs_dir / f'{task.name}_reviewer.log'}"
+        print(f"[{task.name}]  [DRY-RUN]  Would run agent={task.agent}, logs → {planned_log}")
+        return result
+
+    # ---- 2. Run implementer ----------------------------------------------
     print(f"[{task.name}]  Implementer starting  (agent={task.agent}) ...")
     rc = _run_claude_agent(
         agent=task.agent,
@@ -419,6 +433,7 @@ def execute_all(
     repo_root: Path,
     logs_dir: Path,
     max_parallel: Optional[int] = None,
+    dry_run: bool = False,
 ) -> list[TaskResult]:
     """Run all tasks in parallel using a thread pool.
 
@@ -434,7 +449,7 @@ def execute_all(
     with ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_task = {
             executor.submit(
-                _execute_one_task, task, config, repo_root, logs_dir
+                _execute_one_task, task, config, repo_root, logs_dir, dry_run
             ): task
             for task in config.tasks
         }
@@ -462,7 +477,10 @@ def execute_all(
 
 
 def _print_summary(
-    results: list[TaskResult], run_id: str, elapsed_s: float
+    results: list[TaskResult],
+    run_id: str,
+    elapsed_s: float,
+    dry_run: bool = False,
 ) -> None:
     """Print a human-readable summary of every task result."""
 
@@ -471,11 +489,16 @@ def _print_summary(
             return "-"
         return str(rc)
 
-    any_failure = any(not r.ok for r in results)
+    # In dry-run mode a task with implementer_rc=None is a pass, not a failure.
+    if dry_run:
+        any_failure = any(r.error is not None for r in results)
+    else:
+        any_failure = any(not r.ok for r in results)
+    dry_tag = " [DRY-RUN]" if dry_run else ""
 
     print()
     print("=" * 72)
-    print("  PARALLEL ORCHESTRATOR  v2.3  —  SUMMARY")
+    print(f"  PARALLEL ORCHESTRATOR  v2.3  —  SUMMARY{dry_tag}")
     print("=" * 72)
     print(f"  Run ID:      {run_id}")
     print(f"  Tasks:       {len(results)}")
@@ -499,7 +522,12 @@ def _print_summary(
                 print(f"  Reviewer log:      {r.reviewer_log}")
 
     print()
-    if any_failure:
+    if dry_run:
+        print(
+            "[DRY-RUN]  No worktrees were created and no agents were "
+            "executed.  Re-run without --dry-run to execute for real."
+        )
+    elif any_failure:
         print(
             "[WARNING]  Some tasks failed.  No integration or merge has been "
             "performed."
@@ -580,6 +608,15 @@ The same structure works for YAML (requires PyYAML).
             "(default: run all tasks in parallel)."
         ),
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help=(
+            "Validate configuration and worktree paths, then print what would "
+            "happen without creating worktrees, running agents, or writing logs."
+        ),
+    )
     args = parser.parse_args()
 
     # No config → print help and exit cleanly.
@@ -617,8 +654,11 @@ The same structure works for YAML (requires PyYAML).
 
     # ---- 3. Prepare logs directory ----------------------------------------
     logs_dir = repo_root / "logs" / config.run_id
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[INFO]  Logs directory:      {logs_dir}")
+    if args.dry_run:
+        print(f"[INFO]  Logs directory (planned): {logs_dir}")
+    else:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[INFO]  Logs directory:      {logs_dir}")
 
     # ---- 4. Execute all tasks in parallel ---------------------------------
     t0 = time.monotonic()
@@ -627,14 +667,18 @@ The same structure works for YAML (requires PyYAML).
         repo_root=repo_root,
         logs_dir=logs_dir,
         max_parallel=args.max_parallel,
+        dry_run=args.dry_run,
     )
     elapsed = time.monotonic() - t0
 
     # ---- 5. Print summary ------------------------------------------------
-    _print_summary(results, config.run_id, elapsed)
+    _print_summary(results, config.run_id, elapsed, dry_run=args.dry_run)
 
     # ---- 6. Exit code ----------------------------------------------------
-    any_failure = any(not r.ok for r in results)
+    if args.dry_run:
+        any_failure = any(r.error is not None for r in results)
+    else:
+        any_failure = any(not r.ok for r in results)
     sys.exit(1 if any_failure else 0)
 
 
