@@ -607,6 +607,7 @@ def _write_summary_json(
     config: OrchestratorConfig,
     results: list[TaskResult],
     logs_dir: Path,
+    only_task: Optional[str] = None,
 ) -> None:
     """Write a structured JSON summary of the orchestrator run to summary.json.
 
@@ -644,6 +645,8 @@ def _write_summary_json(
         "overall_status": overall_status,
         "tasks": tasks_summary,
     }
+    if only_task is not None:
+        summary["only_task"] = only_task
 
     summary_path = logs_dir / "summary.json"
     with open(str(summary_path), "w", encoding="utf-8") as fh:
@@ -725,6 +728,12 @@ The same structure works for YAML (requires PyYAML).
             "happen without creating worktrees, running agents, or writing logs."
         ),
     )
+    parser.add_argument(
+        "--only",
+        type=str,
+        default=None,
+        help="Run only the named task from the config (instead of all tasks).",
+    )
     args = parser.parse_args()
 
     # No config → print help and exit cleanly.
@@ -760,6 +769,22 @@ The same structure works for YAML (requires PyYAML).
     for t in config.tasks:
         print(f"         - {t.name}  |  branch: {t.branch}  |  agent: {t.agent}")
 
+    # ---- 2b. Filter to a single task when --only is given -----------------
+    if args.only:
+        matching = [t for t in config.tasks if t.name == args.only]
+        if not matching:
+            print(
+                f"[ERROR] No task named '{args.only}' in config.",
+                file=sys.stderr,
+            )
+            print(
+                f"[INFO]  Available tasks: {', '.join(t.name for t in config.tasks)}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        config.tasks = matching
+        print(f"[INFO]  --only mode: running only task '{args.only}'")
+
     # ---- 3. Prepare logs directory ----------------------------------------
     logs_dir = repo_root / "logs" / config.run_id
     if args.dry_run:
@@ -787,7 +812,7 @@ The same structure works for YAML (requires PyYAML).
 
     # ---- 7. Write structured JSON summary (not in dry-run) ---------------
     if not args.dry_run:
-        _write_summary_json(config, results, logs_dir)
+        _write_summary_json(config, results, logs_dir, only_task=args.only)
 
     # ---- 8. Exit code ----------------------------------------------------
     if args.dry_run:
