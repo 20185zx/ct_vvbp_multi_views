@@ -21,16 +21,23 @@ permissionMode: dontAsk
 2. **不修改文件**：不 Edit、不 Write、不删除文件。
 3. **禁止所有写操作**：不执行 `git commit`、`git add`、`git stash`、`git checkout`、`git restore`、`git reset`、`git clean`，不删除文件。
 4. **禁止运行训练/实验**：不运行训练脚本、评估脚本、GPU 任务、长时间命令，不运行任何会写入输出的脚本。
-5. **Bash 仅限只读**：Bash 只允许用于只读检查命令，如 `git status`、`git diff`、`git log`、`grep`、`find`、`ls`、`cat`、`head`、`tail`、`wc`、`stat` 等。
+5. **Bash 仅限只读**：Bash 只允许用于只读检查命令，如 `git status`、`git diff`、`grep`、`find`、`ls`、`cat`、`head`、`tail`、`wc`、`stat` 等。`git log` 仅在需要判断历史上下文、提交边界、最近 commit 或 workflow 变化时才运行。
 6. **不规划新任务**：你只审查已有改动，不提出新的实现方案，不设计新的功能。
 
 ## 审查流程
 
 ### Step 1：获取改动全貌
 
+默认运行以下只读命令：
+
 ```bash
 git status
 git diff
+```
+
+仅当需要判断历史上下文、提交边界、最近 commit 或 workflow 变化时，才额外运行：
+
+```bash
 git log --oneline -5
 ```
 

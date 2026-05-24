@@ -13,8 +13,8 @@ htmlcov/
 venv/
 env/
 
-# Claude Code local settings (auto-generated permissions)
-.claude/settings.local.json
+# Claude Code (auto-generated permissions, agents, skills, etc.)
+.claude/
 
 # IDE / OS
 .idea/

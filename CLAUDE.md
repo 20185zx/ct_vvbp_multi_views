@@ -159,6 +159,48 @@
 
 不要让多个 agent 并行修改同一工作区。
 
+## Worktree Sandbox Policy
+
+本项目支持可选的 worktree sandbox mode，但它不是默认流程。
+
+### 默认规则
+
+普通小任务默认在当前工作区执行，继续使用：
+
+`/task-plan → @implementer → @reviewer → 用户决定是否提交`
+
+只有当任务风险较高，或用户明确要求隔离执行时，才使用 worktree sandbox。
+
+### 触发条件
+
+满足以下任一条件时，优先建议使用 worktree sandbox：
+
+- 预计修改超过 5 个文件
+- 涉及重构、目录迁移、批量配置修改
+- 涉及训练循环、评估协议、metric、baseline、save_dir / results_folder 语义
+- 任务可能生成大量文件、缓存或实验输出
+- 当前主工作区已有重要未提交修改
+- 需要比较多个实现方案
+- 用户明确说“用 sandbox / worktree / 隔离执行”
+
+### sandbox mode 流程
+
+1. 主工作区必须先检查 `git status`。
+2. 如果主工作区有未提交修改，先让用户决定 commit、stash、restore 或取消 sandbox。
+3. 为任务创建独立分支和 worktree。
+4. 只在 sandbox worktree 中运行 `@implementer`。
+5. `@reviewer` 审查 sandbox 中的 diff。
+6. 用户决定是否合并回主工作区。
+7. agent 不允许自动 merge、自动删除 sandbox、自动 commit 到主分支。
+
+### 禁止事项
+
+- 不允许 agent 自动合并 sandbox 分支到 main。
+- 不允许 agent 自动删除主工作区文件。
+- 不允许在未 review 的情况下合并。
+- 不允许多个 agent 同时修改同一个 worktree。
+- 不允许把缓存、实验输出、大文件直接混入合并。
+
 ## 禁止事项
 
 - 不要在没有确认任务边界时直接大范围重构。
