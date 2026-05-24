@@ -121,24 +121,90 @@ class OrchestratorConfig:
 
     @classmethod
     def from_dict(cls, d: dict) -> "OrchestratorConfig":
-        # Validate required top-level fields before anything else.
-        missing = []
+        errors: list[str] = []
+
+        # --- run_id ----------------------------------------------------------
         if "run_id" not in d:
-            missing.append("run_id")
+            errors.append("run_id is required")
+        elif not isinstance(d["run_id"], str) or not d["run_id"].strip():
+            errors.append("run_id must be a non-empty string")
+
+        # --- tasks -----------------------------------------------------------
         if "tasks" not in d:
-            missing.append("tasks")
-        if missing:
-            print(
-                f"[ERROR] Config is missing required field(s): {', '.join(missing)}",
-                file=sys.stderr,
-            )
+            errors.append("tasks is required")
+        elif not isinstance(d["tasks"], list):
+            errors.append("tasks must be a list")
+        elif len(d["tasks"]) == 0:
+            errors.append("tasks must not be empty")
+
+        # --- max_budget_usd --------------------------------------------------
+        max_budget = d.get("max_budget_usd", 10.0)
+        if not isinstance(max_budget, (int, float)) or float(max_budget) <= 0:
+            errors.append("max_budget_usd must be > 0")
+
+        # --- review_after_implement ------------------------------------------
+        review_after = d.get("review_after_implement", False)
+        if not isinstance(review_after, bool):
+            errors.append("review_after_implement must be a boolean")
+
+        # If structural errors exist, report and exit early.
+        if errors:
+            for e in errors:
+                print(f"[ERROR] {e}", file=sys.stderr)
             sys.exit(1)
-        tasks = [TaskConfig.from_dict(t) for t in d["tasks"]]
+
+        # --- per-task validation ---------------------------------------------
+        seen_names: set[str] = set()
+        seen_branches: set[str] = set()
+        seen_worktrees: set[str] = set()
+        tasks: list[TaskConfig] = []
+
+        for i, t in enumerate(d["tasks"]):
+            prefix = f"tasks[{i}]"
+            if not isinstance(t, dict):
+                errors.append(f"{prefix}: must be a dict/object")
+                continue
+
+            # Required per-task fields
+            for field in ("name", "branch", "worktree", "prompt"):
+                if field not in t or (isinstance(t[field], str) and not t[field].strip()):
+                    errors.append(f"{prefix}: '{field}' is required and must be non-empty")
+
+            if any(f not in t or (isinstance(t.get(f, ""), str) and not t.get(f, "").strip()) for f in ("name", "branch", "worktree", "prompt")):
+                continue  # skip uniqueness checks if required fields are missing
+
+            # Uniqueness checks
+            name = t["name"]
+            branch = t["branch"]
+            worktree = t["worktree"]
+
+            if name in seen_names:
+                errors.append(f"{prefix}: duplicate task name '{name}'")
+            else:
+                seen_names.add(name)
+
+            if branch in seen_branches:
+                errors.append(f"{prefix}: duplicate branch '{branch}'")
+            else:
+                seen_branches.add(branch)
+
+            if worktree in seen_worktrees:
+                errors.append(f"{prefix}: duplicate worktree '{worktree}'")
+            else:
+                seen_worktrees.add(worktree)
+
+            tasks.append(TaskConfig.from_dict(t))
+
+        if errors:
+            for e in errors:
+                print(f"[ERROR] {e}", file=sys.stderr)
+            sys.exit(1)
+
         return cls(
             run_id=d["run_id"],
             base_branch=d.get("base_branch", "main"),
-            max_budget_usd=float(d.get("max_budget_usd", 10.0)),
-            review_after_implement=bool(d.get("review_after_implement", False)),
+            max_budget_usd=float(max_budget),
+            review_after_implement=review_after,
             tasks=tasks,
         )
 
@@ -293,7 +359,8 @@ def _run_claude_agent(
         fh.write(f"Worktree:    {worktree_path}\n")
         fh.write(f"Max budget:  ${max_budget_usd:.2f} USD\n")
         fh.write(f"Started:     {_utc_now_iso()}\n")
-        fh.write(f"Command:     {' '.join(cmd)}\n")
+        fh.write(f"Command:     claude -p --agent {agent} --no-session-persistence --max-budget-usd {max_budget_usd} <prompt omitted>\n")
+        fh.write(f"Prompt length: {len(prompt)} chars\n")
         fh.write(f"{'=' * 60}\n\n")
         fh.flush()
 
@@ -350,6 +417,15 @@ def _execute_one_task(
         wt = repo_root / task.worktree
     wt = wt.resolve()
     result.worktree = str(wt)
+
+    # ---- 0. Validate branch name format ------------------------------------
+    proc = _run_git(["check-ref-format", "--branch", task.branch], cwd=repo_root)
+    if proc.returncode != 0:
+        result.error = (
+            f"Invalid branch name: '{task.branch}'\n"
+            f"  git check-ref-format: {proc.stderr.strip()}"
+        )
+        return result
 
     # ---- 1. Prepare the worktree -----------------------------------------
     if wt.exists():
