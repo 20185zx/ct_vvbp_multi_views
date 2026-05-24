@@ -127,6 +127,38 @@
 
 然后再运行 `/task-review`。
 
+## Multi-agent Workflow
+
+本项目现在支持两个项目级 subagent：
+
+### `@implementer`
+
+用于在 `/task-plan` 生成任务单后执行代码修改。  
+默认遵守 `/task-implement` 的规则。  
+只执行已有任务单，不重新规划，不扩展任务，不自动 commit，不删除文件。
+
+使用方式：
+`@implementer 按上面的任务单执行`
+
+### `@reviewer`
+
+用于在 implementer 完成后审查当前 diff。  
+默认遵守 `/task-review` 的规则。  
+只读审查，不修改代码，不提交，不删除文件。
+
+使用方式：
+`@reviewer 审查当前改动是否符合原任务`
+
+### 推荐流程
+
+1. 主对话或强模型运行 `/task-plan <任务目标>`
+2. 运行 `@implementer 按上面的任务单执行`
+3. 运行 `@reviewer 审查当前改动是否符合原任务`
+4. 用户根据审查结果决定是否提交
+5. 如有实验结果，再运行 `/experiment-log`
+
+不要让多个 agent 并行修改同一工作区。
+
 ## 禁止事项
 
 - 不要在没有确认任务边界时直接大范围重构。
