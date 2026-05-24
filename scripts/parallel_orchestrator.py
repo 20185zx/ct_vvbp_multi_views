@@ -544,6 +544,54 @@ def _print_summary(
     print()
 
 
+def _write_summary_json(
+    config: OrchestratorConfig,
+    results: list[TaskResult],
+    logs_dir: Path,
+) -> None:
+    """Write a structured JSON summary of the orchestrator run to summary.json.
+
+    Called only after a real (non-dry-run) execution completes.
+    The summary includes run-level metadata and per-task results, including
+    branch names matched from the original task configuration.
+    """
+    # Build a lookup so we can attach the branch name to each result.
+    task_branch_map: dict[str, str] = {t.name: t.branch for t in config.tasks}
+
+    any_failure = any(not r.ok for r in results)
+    overall_status = "SOME_TASKS_FAILED" if any_failure else "ALL_TASKS_OK"
+
+    tasks_summary: list[dict] = []
+    for r in results:
+        branch = task_branch_map.get(r.task_name, "")
+        tasks_summary.append(
+            {
+                "name": r.task_name,
+                "branch": branch,
+                "worktree": r.worktree,
+                "implementer_rc": r.implementer_rc,
+                "reviewer_rc": r.reviewer_rc,
+                "implementer_log": r.implementer_log,
+                "reviewer_log": r.reviewer_log,
+            }
+        )
+
+    summary = {
+        "run_id": config.run_id,
+        "base_branch": config.base_branch,
+        "max_budget_usd": config.max_budget_usd,
+        "review_after_implement": config.review_after_implement,
+        "overall_status": overall_status,
+        "tasks": tasks_summary,
+    }
+
+    summary_path = logs_dir / "summary.json"
+    with open(str(summary_path), "w", encoding="utf-8") as fh:
+        json.dump(summary, fh, indent=2, ensure_ascii=False)
+
+    print(f"[INFO]  Summary written: {summary_path}")
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -674,7 +722,11 @@ The same structure works for YAML (requires PyYAML).
     # ---- 5. Print summary ------------------------------------------------
     _print_summary(results, config.run_id, elapsed, dry_run=args.dry_run)
 
-    # ---- 6. Exit code ----------------------------------------------------
+    # ---- 6. Write structured JSON summary (not in dry-run) ---------------
+    if not args.dry_run:
+        _write_summary_json(config, results, logs_dir)
+
+    # ---- 7. Exit code ----------------------------------------------------
     if args.dry_run:
         any_failure = any(r.error is not None for r in results)
     else:
