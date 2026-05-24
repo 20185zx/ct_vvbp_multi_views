@@ -117,7 +117,7 @@ def main():
     # ---- Geometry & extractor ----
     V = 60  # fixed; config uses sparse_views=[60]
     geo = load_or_generate_geo(
-        V, str(run_cfg.results_folder or "Results_512_multirate_60view"),
+        V, str(run_cfg.results_folder or "cache/fanbeam_geometry"),
         device,
         image_size=exp_cfg.image_size,
         n_detec=exp_cfg.n_detec,

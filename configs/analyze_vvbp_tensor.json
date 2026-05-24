@@ -16,5 +16,5 @@
   "seed": 42,
   "output_dir": "outputs/vvbp_tensor_property_analysis",
   "dicom_folder": "full_1mm/L067/full_1mm",
-  "results_folder": "Results_512_multirate"
+  "results_folder": "cache/fanbeam_geometry"
 }

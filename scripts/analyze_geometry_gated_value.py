@@ -82,7 +82,7 @@ def main():
     csv_dir = os.path.join(args.output_dir, "csv")
 
     # ---- Geometry + dataset ----
-    geo = load_or_generate_geo(V, str(run_cfg.results_folder or "Results_512_multirate_60view"),
+    geo = load_or_generate_geo(V, str(run_cfg.results_folder or "cache/fanbeam_geometry"),
                                device, image_size=exp_cfg.image_size, n_detec=exp_cfg.n_detec,
                                d_detec=exp_cfg.d_detec, d_voxel=exp_cfg.d_voxel,
                                DSO=exp_cfg.DSO, DOD=exp_cfg.DOD)

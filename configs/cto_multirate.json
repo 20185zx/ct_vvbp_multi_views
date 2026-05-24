@@ -6,7 +6,7 @@
   "region_name": "center_256",
   "region": [128, 384, 128, 384],
   "dicom_folder": null,
-  "results_folder": "Results_512_multirate",
+  "results_folder": "cache/fanbeam_geometry",
   "save_dir": "outputs/cto_adapted_astra_dc_multirate",
   "experiment": {
     "full_views": 240,

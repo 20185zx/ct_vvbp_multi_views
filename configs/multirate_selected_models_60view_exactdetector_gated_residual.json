@@ -6,7 +6,7 @@
   "region_name": "center_256",
   "region": [128, 384, 128, 384],
   "dicom_folder": "full_1mm/L067/full_1mm",
-  "results_folder": "Results_512_multirate_60view",
+  "results_folder": "cache/fanbeam_geometry",
   "save_dir": "outputs/multirate_vvbp_local_rank_exactdetector_gated_residual",
   "experiment": {
     "full_views": 60,
