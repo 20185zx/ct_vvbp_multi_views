@@ -726,43 +726,44 @@ def main():
         train_log.append(info)
 
         # --- Epoch-end evaluation ---
-        print(f"  Evaluating on test slice {global_test_idx} ...")
-        model.eval()
-        eval_results = evaluate_one_slice(
-            model=model,
-            eval_dataset=eval_dataset,
-            extractors=extractors,
-            geo_dict=geo_dict,
-            v_stats=v_stats,
-            target_stats=target_stats,
-            projector=projector,
-            dc_cfg=dc_cfg,
-            sparse_views=sparse_views,
-            region=region,
-            test_idx=global_test_idx,
-            chunk_size=chunk_size_eval,
-            patch_size=patch_size,
-            device=device,
-        )
-        target_region_ref = eval_results[sparse_views[0]]["target_region"]
-        save_eval_figures(eval_results, target_region_ref, sparse_views, exp_cfg.save_dir, epoch=epoch)
+        if getattr(exp_cfg, 'eval_every_epoch', True):
+            print(f"  Evaluating on test slice {global_test_idx} ...")
+            model.eval()
+            eval_results = evaluate_one_slice(
+                model=model,
+                eval_dataset=eval_dataset,
+                extractors=extractors,
+                geo_dict=geo_dict,
+                v_stats=v_stats,
+                target_stats=target_stats,
+                projector=projector,
+                dc_cfg=dc_cfg,
+                sparse_views=sparse_views,
+                region=region,
+                test_idx=global_test_idx,
+                chunk_size=chunk_size_eval,
+                patch_size=patch_size,
+                device=device,
+            )
+            target_region_ref = eval_results[sparse_views[0]]["target_region"]
+            save_eval_figures(eval_results, target_region_ref, sparse_views, exp_cfg.save_dir, epoch=epoch)
 
-        # Add per-V PSNR/SSIM to train log
-        for V in sparse_views:
-            r = eval_results[V]
-            info[f"PSNR_V{V}"] = r["img_metrics"]["PSNR"]
-            info[f"SSIM_V{V}"] = r["img_metrics"]["SSIM"]
+            # Add per-V PSNR/SSIM to train log
+            for V in sparse_views:
+                r = eval_results[V]
+                info[f"PSNR_V{V}"] = r["img_metrics"]["PSNR"]
+                info[f"SSIM_V{V}"] = r["img_metrics"]["SSIM"]
 
-        # Save best model (track PSNR on the first sparse view)
-        current_psnr = eval_results[sparse_views[0]]["img_metrics"]["PSNR"]
-        current_ssim = eval_results[sparse_views[0]]["img_metrics"]["SSIM"]
-        if current_psnr > best_psnr:
-            best_psnr = current_psnr
-            best_ssim = current_ssim
-            best_epoch = epoch
-            model_path = os.path.join(exp_cfg.save_dir, "local_rank_center_integral_mlp_best.pt")
-            torch.save(model.state_dict(), model_path)
-            print(f"  ++ New best PSNR={best_psnr:.4f} SSIM={best_ssim:.6f} at epoch {best_epoch}, saved")
+            # Save best model (track PSNR on the first sparse view)
+            current_psnr = eval_results[sparse_views[0]]["img_metrics"]["PSNR"]
+            current_ssim = eval_results[sparse_views[0]]["img_metrics"]["SSIM"]
+            if current_psnr > best_psnr:
+                best_psnr = current_psnr
+                best_ssim = current_ssim
+                best_epoch = epoch
+                model_path = os.path.join(exp_cfg.save_dir, "local_rank_center_integral_mlp_best.pt")
+                torch.save(model.state_dict(), model_path)
+                print(f"  ++ New best PSNR={best_psnr:.4f} SSIM={best_ssim:.6f} at epoch {best_epoch}, saved")
 
         # Save train log incrementally
         pd.DataFrame(train_log).to_csv(

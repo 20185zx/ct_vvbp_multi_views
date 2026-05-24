@@ -35,6 +35,7 @@ class ExperimentConfig:
     seed: int = 42
     train_region: Optional[list] = None
     eval_only: bool = False
+    eval_every_epoch: bool = True
     checkpoint_dir: str = ""
 
     # CTO-adapted baseline parameters

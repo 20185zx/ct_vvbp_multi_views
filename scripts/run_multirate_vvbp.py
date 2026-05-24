@@ -271,88 +271,89 @@ def main():
                       f"loss={avg_loss:.6f} time={epoch_time:.1f}s")
 
                 # --- Evaluate after each epoch ---
-                model.eval()
-                model_metrics_df, base_metrics, model_preds, base_preds, target_arr = \
-                    evaluate_multirate(
-                        model=model,
-                        eval_dataset=eval_dataset,
-                        extractors=extractors,
-                        geo_dict=geo_dict,
-                        target_stats=target_stats,
-                        v_stats=v_stats,
-                        sparse_views=sparse_views,
-                        test_idx=global_test_idx,
-                        region=region,
-                        patch_size=exp_cfg.patch_size,
-                        chunk_size=exp_cfg.chunk_size_eval,
-                        device=device,
-                    )
+                if getattr(exp_cfg, 'eval_every_epoch', True):
+                    model.eval()
+                    model_metrics_df, base_metrics, model_preds, base_preds, target_arr = \
+                        evaluate_multirate(
+                            model=model,
+                            eval_dataset=eval_dataset,
+                            extractors=extractors,
+                            geo_dict=geo_dict,
+                            target_stats=target_stats,
+                            v_stats=v_stats,
+                            sparse_views=sparse_views,
+                            test_idx=global_test_idx,
+                            region=region,
+                            patch_size=exp_cfg.patch_size,
+                            chunk_size=exp_cfg.chunk_size_eval,
+                            device=device,
+                        )
 
-                # Log per-epoch metrics
-                for V in sparse_views:
-                    fbp_m = precomputed_fbp["fbp_metrics"][V]
-                    lr_m = base_metrics["Local-rank closed"][V]
-                    epoch_eval_rows.append({
-                        "epoch": epoch,
-                        "V": V,
-                        "PSNR": model_metrics_df.loc[V, "PSNR"],
-                        "SSIM": model_metrics_df.loc[V, "SSIM"],
-                        "FBP_PSNR": fbp_m["PSNR"],
-                        "FBP_SSIM": fbp_m["SSIM"],
-                        "LR_closed_PSNR": lr_m["PSNR"],
-                        "LR_closed_SSIM": lr_m["SSIM"],
-                    })
+                    # Log per-epoch metrics
+                    for V in sparse_views:
+                        fbp_m = precomputed_fbp["fbp_metrics"][V]
+                        lr_m = base_metrics["Local-rank closed"][V]
+                        epoch_eval_rows.append({
+                            "epoch": epoch,
+                            "V": V,
+                            "PSNR": model_metrics_df.loc[V, "PSNR"],
+                            "SSIM": model_metrics_df.loc[V, "SSIM"],
+                            "FBP_PSNR": fbp_m["PSNR"],
+                            "FBP_SSIM": fbp_m["SSIM"],
+                            "LR_closed_PSNR": lr_m["PSNR"],
+                            "LR_closed_SSIM": lr_m["SSIM"],
+                        })
 
-                # Save epoch eval log
-                epoch_eval_df = pd.DataFrame(epoch_eval_rows)
-                epoch_eval_path = os.path.join(
-                    exp_cfg.save_dir, f"multirate_epoch_eval_log_{safe_name}.csv",
-                )
-                epoch_eval_df.to_csv(epoch_eval_path, index=False)
+                    # Save epoch eval log
+                    epoch_eval_df = pd.DataFrame(epoch_eval_rows)
+                    epoch_eval_path = os.path.join(
+                        exp_cfg.save_dir, f"multirate_epoch_eval_log_{safe_name}.csv",
+                    )
+                    epoch_eval_df.to_csv(epoch_eval_path, index=False)
 
-                # Track best by average PSNR across sparse views
-                avg_psnr = model_metrics_df["PSNR"].mean()
-                if avg_psnr > best_avg_psnr:
-                    best_avg_psnr = avg_psnr
-                    best_path = os.path.join(
-                        exp_cfg.save_dir, f"{safe_name}_best_avg_psnr.pt",
-                    )
-                    torch.save(model.state_dict(), best_path)
-                    print(f"  -> New best avg PSNR={best_avg_psnr:.4f}, "
-                          f"saved: {best_path}")
+                    # Track best by average PSNR across sparse views
+                    avg_psnr = model_metrics_df["PSNR"].mean()
+                    if avg_psnr > best_avg_psnr:
+                        best_avg_psnr = avg_psnr
+                        best_path = os.path.join(
+                            exp_cfg.save_dir, f"{safe_name}_best_avg_psnr.pt",
+                        )
+                        torch.save(model.state_dict(), best_path)
+                        print(f"  -> New best avg PSNR={best_avg_psnr:.4f}, "
+                              f"saved: {best_path}")
 
-                    # Save best-epoch visualization
-                    best_fig_path = os.path.join(
-                        exp_cfg.save_dir,
-                        f"{safe_name}_best_epoch_{epoch:03d}_comparison.png",
-                    )
-                    preds_by_method = {
-                        "FBP": {
-                            V: precomputed_fbp["fbp_preds_region"][V]
-                            for V in sparse_views
-                        },
-                        "Local-rank closed": base_preds["Local-rank closed"],
-                        short_label(model_name): model_preds,
-                    }
-                    psnr_by_method = {
-                        "FBP": {V: precomputed_fbp["fbp_metrics"][V]["PSNR"] for V in sparse_views},
-                        "Local-rank closed": {
-                            V: base_metrics["Local-rank closed"][V]["PSNR"] for V in sparse_views
-                        },
-                        short_label(model_name): {
-                            V: model_metrics_df.loc[V, "PSNR"] for V in sparse_views
-                        },
-                    }
-                    plot_comparison_grid(
-                        target=target_arr,
-                        preds_by_method=preds_by_method,
-                        psnr_by_method=psnr_by_method,
-                        col_labels=["FBP", "Local-rank closed", short_label(model_name)],
-                        sparse_views=sparse_views,
-                        save_path=best_fig_path,
-                        show=False,
-                    )
-                    print(f"  -> Saved best-epoch visualization: {best_fig_path}")
+                        # Save best-epoch visualization
+                        best_fig_path = os.path.join(
+                            exp_cfg.save_dir,
+                            f"{safe_name}_best_epoch_{epoch:03d}_comparison.png",
+                        )
+                        preds_by_method = {
+                            "FBP": {
+                                V: precomputed_fbp["fbp_preds_region"][V]
+                                for V in sparse_views
+                            },
+                            "Local-rank closed": base_preds["Local-rank closed"],
+                            short_label(model_name): model_preds,
+                        }
+                        psnr_by_method = {
+                            "FBP": {V: precomputed_fbp["fbp_metrics"][V]["PSNR"] for V in sparse_views},
+                            "Local-rank closed": {
+                                V: base_metrics["Local-rank closed"][V]["PSNR"] for V in sparse_views
+                            },
+                            short_label(model_name): {
+                                V: model_metrics_df.loc[V, "PSNR"] for V in sparse_views
+                            },
+                        }
+                        plot_comparison_grid(
+                            target=target_arr,
+                            preds_by_method=preds_by_method,
+                            psnr_by_method=psnr_by_method,
+                            col_labels=["FBP", "Local-rank closed", short_label(model_name)],
+                            sparse_views=sparse_views,
+                            save_path=best_fig_path,
+                            show=False,
+                        )
+                        print(f"  -> Saved best-epoch visualization: {best_fig_path}")
 
             train_time = time.time() - t_train_start
             print(f"Training time: {train_time / 60:.1f} min")

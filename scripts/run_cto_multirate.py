@@ -289,63 +289,64 @@ def main():
             log_rows.append({"epoch": epoch, "loss": loss, "seconds": sec})
             print(f"Epoch {epoch:03d}/{exp_cfg.num_epochs}: loss={loss:.8e}, time={sec/60:.2f} min")
             # Evaluate after each epoch
-            metrics_df_epoch, eval_out = run_eval_and_log(epoch=epoch)
+            if getattr(exp_cfg, 'eval_every_epoch', True):
+                metrics_df_epoch, eval_out = run_eval_and_log(epoch=epoch)
 
-            # Collect epoch-level metrics
-            cto_df = metrics_df_epoch[metrics_df_epoch["method"] == "CTO-adapted Sparse-DC"]
-            fbp_df = metrics_df_epoch[metrics_df_epoch["method"] == "FBP"]
+                # Collect epoch-level metrics
+                cto_df = metrics_df_epoch[metrics_df_epoch["method"] == "CTO-adapted Sparse-DC"]
+                fbp_df = metrics_df_epoch[metrics_df_epoch["method"] == "FBP"]
 
-            for _, row in cto_df.iterrows():
-                V = row["V"]
-                fbp_row = fbp_df[fbp_df["V"] == V].iloc[0]
+                for _, row in cto_df.iterrows():
+                    V = row["V"]
+                    fbp_row = fbp_df[fbp_df["V"] == V].iloc[0]
 
-                epoch_eval_rows.append({
-                    "epoch": epoch,
-                    "V": V,
-                    "PSNR": row["PSNR"],
-                    "SSIM": row["SSIM"],
-                    "FBP_PSNR": fbp_row["PSNR"],
-                    "FBP_SSIM": fbp_row["SSIM"],
-                    "PSNR_gain_over_FBP": row["PSNR"] - fbp_row["PSNR"],
-                    "SSIM_gain_over_FBP": row["SSIM"] - fbp_row["SSIM"],
-                })
+                    epoch_eval_rows.append({
+                        "epoch": epoch,
+                        "V": V,
+                        "PSNR": row["PSNR"],
+                        "SSIM": row["SSIM"],
+                        "FBP_PSNR": fbp_row["PSNR"],
+                        "FBP_SSIM": fbp_row["SSIM"],
+                        "PSNR_gain_over_FBP": row["PSNR"] - fbp_row["PSNR"],
+                        "SSIM_gain_over_FBP": row["SSIM"] - fbp_row["SSIM"],
+                    })
 
-            all_epoch_metrics_rows.extend(metrics_df_epoch.to_dict("records"))
+                all_epoch_metrics_rows.extend(metrics_df_epoch.to_dict("records"))
 
-            epoch_eval_df = pd.DataFrame(epoch_eval_rows)
-            epoch_eval_path = os.path.join(exp_cfg.save_dir, "cto_epoch_eval_log.csv")
-            epoch_eval_df.to_csv(epoch_eval_path, index=False)
-            print("Saved epoch eval log:", epoch_eval_path)
+                epoch_eval_df = pd.DataFrame(epoch_eval_rows)
+                epoch_eval_path = os.path.join(exp_cfg.save_dir, "cto_epoch_eval_log.csv")
+                epoch_eval_df.to_csv(epoch_eval_path, index=False)
+                print("Saved epoch eval log:", epoch_eval_path)
 
-            # Save best checkpoint and visualization by average PSNR over all sparse rates
-            avg_psnr = cto_df["PSNR"].mean()
+                # Save best checkpoint and visualization by average PSNR over all sparse rates
+                avg_psnr = cto_df["PSNR"].mean()
 
-            if avg_psnr > best_avg_psnr:
-                best_avg_psnr = avg_psnr
-                best_path = os.path.join(exp_cfg.save_dir, "cto_best_avg_psnr.pt")
-                torch.save(model.state_dict(), best_path)
-                print(f"Saved best checkpoint: {best_path}, avg PSNR={best_avg_psnr:.4f}")
+                if avg_psnr > best_avg_psnr:
+                    best_avg_psnr = avg_psnr
+                    best_path = os.path.join(exp_cfg.save_dir, "cto_best_avg_psnr.pt")
+                    torch.save(model.state_dict(), best_path)
+                    print(f"Saved best checkpoint: {best_path}, avg PSNR={best_avg_psnr:.4f}")
 
-                # Save visualization for this best epoch
-                best_fig_path = os.path.join(exp_cfg.save_dir, f"cto_best_epoch_{epoch:03d}_comparison.png")
-                preds_by_method = {
-                    "FBP": eval_out["fbp_preds_region"],
-                    "CTO-adapted Sparse-DC": eval_out["model_preds_region"],
-                }
-                psnr_by_method = {
-                    "FBP": {V: eval_out["fbp_metrics"][V]["PSNR"] for V in sparse_views},
-                    "CTO-adapted Sparse-DC": {V: eval_out["model_metrics"][V]["PSNR"] for V in sparse_views},
-                }
-                plot_comparison_grid(
-                    target=eval_out["target_region"],
-                    preds_by_method=preds_by_method,
-                    psnr_by_method=psnr_by_method,
-                    col_labels=["FBP", "CTO-adapted Sparse-DC"],
-                    sparse_views=sparse_views,
-                    save_path=best_fig_path,
-                    show=False,
-                )
-                print(f"Saved best epoch visualization: {best_fig_path}")
+                    # Save visualization for this best epoch
+                    best_fig_path = os.path.join(exp_cfg.save_dir, f"cto_best_epoch_{epoch:03d}_comparison.png")
+                    preds_by_method = {
+                        "FBP": eval_out["fbp_preds_region"],
+                        "CTO-adapted Sparse-DC": eval_out["model_preds_region"],
+                    }
+                    psnr_by_method = {
+                        "FBP": {V: eval_out["fbp_metrics"][V]["PSNR"] for V in sparse_views},
+                        "CTO-adapted Sparse-DC": {V: eval_out["model_metrics"][V]["PSNR"] for V in sparse_views},
+                    }
+                    plot_comparison_grid(
+                        target=eval_out["target_region"],
+                        preds_by_method=preds_by_method,
+                        psnr_by_method=psnr_by_method,
+                        col_labels=["FBP", "CTO-adapted Sparse-DC"],
+                        sparse_views=sparse_views,
+                        save_path=best_fig_path,
+                        show=False,
+                    )
+                    print(f"Saved best epoch visualization: {best_fig_path}")
 
 
         torch.save(model.state_dict(), ckpt_path)
@@ -353,9 +354,10 @@ def main():
         train_log_path = os.path.join(exp_cfg.save_dir, "cto_train_log.csv")
         pd.DataFrame(log_rows).to_csv(train_log_path, index=False)
         print("Saved train log:", train_log_path)
-        all_epoch_metrics_path = os.path.join(exp_cfg.save_dir, "cto_all_epoch_metrics.csv")
-        pd.DataFrame(all_epoch_metrics_rows).to_csv(all_epoch_metrics_path, index=False)
-        print("Saved all epoch metrics:", all_epoch_metrics_path)
+        if getattr(exp_cfg, 'eval_every_epoch', True):
+            all_epoch_metrics_path = os.path.join(exp_cfg.save_dir, "cto_all_epoch_metrics.csv")
+            pd.DataFrame(all_epoch_metrics_rows).to_csv(all_epoch_metrics_path, index=False)
+            print("Saved all epoch metrics:", all_epoch_metrics_path)
 
     # Evaluation
     eval_out = evaluate_cto_per_v(
