@@ -1306,7 +1306,7 @@ def main():
             sys.exit(1)
 
     if cfg.results_folder is None:
-        cfg.results_folder = os.path.join(PROJECT_ROOT, "Results_analysis")
+        cfg.results_folder = os.path.join(PROJECT_ROOT, "cache", "fanbeam_geometry")
     os.makedirs(cfg.results_folder, exist_ok=True)
 
     # Load slice

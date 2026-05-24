@@ -82,6 +82,8 @@ class RunConfig:
     def __post_init__(self):
         if self.cache_dir is not None and self.cache_dir.startswith("cached_direct_vvbp_results/"):
             self.cache_dir = "cache/vvbp_patches"
+        if isinstance(self.results_folder, str) and os.path.basename(self.results_folder.replace("\\", "/")) == "Results_analysis":
+            self.results_folder = "cache/fanbeam_geometry"
         if self.experiment is None:
             self.experiment = ExperimentConfig()
         if self.model_names is None:
