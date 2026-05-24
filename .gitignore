@@ -46,5 +46,6 @@ outputs/
 
 # Logs and temporary files
 *.log
+logs/
 tmp/
 temp/
