@@ -28,7 +28,6 @@ Results/
 cache/
 
 outputs/
-cached_direct_vvbp_results/
 
 # Model checkpoints and tensor caches
 *.pt

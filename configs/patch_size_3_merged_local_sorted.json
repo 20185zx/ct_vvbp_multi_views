@@ -8,7 +8,7 @@
   "dicom_folder": null,
   "results_folder": null,
   "save_dir": "outputs/patch_size_3_merged_local_sorted",
-  "cache_dir": "cached_direct_vvbp_results/cache_patch3_formal",
+  "cache_dir": "cache/vvbp_patches",
   "experiment": {
     "sparse_views": 60,
     "image_size": 512,

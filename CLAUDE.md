@@ -139,6 +139,7 @@
 ## 项目目录约定
 
 - `cache/fanbeam_geometry/` 是 fan-beam 几何缓存目录。
+- `cache/vvbp_patches/` 是 VVBP patch 缓存目录（.pt 文件），由 `src/data/cache_builder.py` 生成和使用。
 - 这些目录用于存放预计算的几何索引或中间缓存文件，不属于正式实验结果。
 - 这些缓存可以由代码重新生成，因此一般不需要使用 `/experiment-log` 记录。
 - 真正的实验结果应以 config 中的 `save_dir` 为准，通常位于 `outputs/` 下，包括 checkpoint、训练日志、逐 epoch 评估 CSV、可视化 PNG 等。

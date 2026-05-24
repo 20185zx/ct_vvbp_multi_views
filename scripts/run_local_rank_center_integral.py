@@ -135,7 +135,7 @@ def main():
     parser.add_argument(
         "--eval_cache",
         type=str,
-        default="cached_direct_vvbp_results/cache_patch3_formal/eval_cache_g448_center_256_x128-384_y128-384_patch3.pt",
+        default="cache/vvbp_patches/eval_cache_g448_center_256_x128-384_y128-384_patch3.pt",
         help="Path to eval cache containing values_sorted and target.",
     )
 

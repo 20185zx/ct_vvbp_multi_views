@@ -8,7 +8,7 @@
   "dicom_folder": null,
   "results_folder": null,
   "save_dir": "outputs/sino_60_to_240_baseline",
-  "cache_dir": "cached_direct_vvbp_results/cache_patch3_formal",
+  "cache_dir": "cache/vvbp_patches",
   "experiment": {
     "full_views": 240,
     "sparse_views": 60,

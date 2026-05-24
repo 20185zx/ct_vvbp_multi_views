@@ -80,7 +80,7 @@ Large generated files are intentionally not included in the cleaned archive:
 
 - `.git/`
 - `outputs/`
-- `cached_direct_vvbp_results/`
+- `cache/vvbp_patches/`
 - `Results/`
 - `full_1mm/`
 

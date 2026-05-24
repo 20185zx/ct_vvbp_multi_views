@@ -31,7 +31,7 @@ class ExperimentConfig:
     rebuild_train_cache: bool = False
     rebuild_eval_cache: bool = False
     save_dir: str = "outputs"
-    cache_dir: str = "cached_direct_vvbp_results/cache"
+    cache_dir: str = "cache/vvbp_patches"
     seed: int = 42
     train_region: Optional[list] = None
     eval_only: bool = False
@@ -49,6 +49,9 @@ class ExperimentConfig:
     def __post_init__(self):
         if self.sparse_views is None:
             self.sparse_views = [9, 18, 36, 72]
+        # Normalize legacy cache_dir paths to the consolidated cache/ directory.
+        if isinstance(self.cache_dir, str) and self.cache_dir.startswith("cached_direct_vvbp_results/"):
+            self.cache_dir = "cache/vvbp_patches"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -77,6 +80,8 @@ class RunConfig:
     archive_stamp: str = "2026-05-17_17-04"
 
     def __post_init__(self):
+        if self.cache_dir is not None and self.cache_dir.startswith("cached_direct_vvbp_results/"):
+            self.cache_dir = "cache/vvbp_patches"
         if self.experiment is None:
             self.experiment = ExperimentConfig()
         if self.model_names is None:
@@ -164,6 +169,6 @@ def infer_project_paths(archive_stamp: str = "2026-05-17_17-04") -> Dict[str, Pa
         "project_root": project_root,
         "dicom_folder": project_root / "full_1mm" / "L067" / "full_1mm",
         "results_folder": project_root / "Results",
-        "shared_cache_dir": project_root / "cached_direct_vvbp_results" / "cache",
+        "shared_cache_dir": project_root / "cache" / "vvbp_patches",
         "output_dir": archive_dir / "outputs",
     }
