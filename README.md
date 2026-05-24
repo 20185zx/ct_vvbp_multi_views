@@ -30,6 +30,8 @@ src/training/                 Cached training loop
 src/utils/                    Config and seed utilities
 ```
 
+`cache/` 存储可再生成缓存，`outputs/` 存放实验结果输出。
+
 ## Commands
 
 Local-rank VVBP experiments:
