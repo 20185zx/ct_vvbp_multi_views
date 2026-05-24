@@ -573,6 +573,7 @@ def _write_summary_json(
                 "reviewer_rc": r.reviewer_rc,
                 "implementer_log": r.implementer_log,
                 "reviewer_log": r.reviewer_log,
+                "error": r.error,
             }
         )
 
